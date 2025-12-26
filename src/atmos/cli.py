@@ -17,6 +17,11 @@ def format_dt(dt: datetime) -> str:
     local_dt = dt.astimezone() 
     return local_dt.strftime("%H:%M")
 
+def format_time_ampm(dt: datetime) -> str:
+    """Formats time as 07:18 AM."""
+    local_dt = dt.astimezone()
+    return local_dt.strftime("%I:%M %p")
+
 def format_date(dt: datetime) -> str:
     local_dt = dt.astimezone()
     return local_dt.strftime("%a %b %d")
@@ -317,39 +322,68 @@ def stars(location_arg, location):
         # Stargazing logic
         condition_report = get_stargazing_conditions(today.cloud_cover or 0, today.moon_phase or "Unknown")
         
-        # UI
-        grid = Table.grid(expand=True, padding=(1, 2))
-        grid.add_column(ratio=1)
-        grid.add_column(ratio=1)
+        # Calculate Daylight
+        daylight_str = "-"
+        if today.sunrise and today.sunset:
+            diff = today.sunset - today.sunrise
+            hours, remainder = divmod(diff.seconds, 3600)
+            minutes = remainder // 60
+            daylight_str = f"{hours}h {minutes}m"
+
+        # UI Construction
+        # Use a single Table with no box for the internal layout
+        grid = Table.grid(expand=True, padding=(0, 2))
+        grid.add_column()
+        grid.add_column()
         
-        # Sun Panel
-        sun_table = Table(show_header=False, box=None)
-        sun_table.add_row("Rise", format_dt(today.sunrise) if today.sunrise else "-")
-        sun_table.add_row("Set", format_dt(today.sunset) if today.sunset else "-")
+        # Left Side (Sun)
+        sun_table = Table.grid(padding=(0, 1))
+        sun_table.add_column(style="bold yellow", width=12) # Label
+        sun_table.add_column() # Value
         
-        # Moon Panel
-        moon_table = Table(show_header=False, box=None)
-        moon_table.add_row("Phase", today.moon_phase.replace("_", " ").title())
-        moon_table.add_row("Rise", format_dt(today.moonrise) if today.moonrise else "-")
-        moon_table.add_row("Set", format_dt(today.moonset) if today.moonset else "-")
+        sun_table.add_row("☀ Sun", "")
+        sun_table.add_row("Rise:", format_time_ampm(today.sunrise) if today.sunrise else "-")
+        sun_table.add_row("Set:", format_time_ampm(today.sunset) if today.sunset else "-")
+        sun_table.add_row("Daylight:", daylight_str)
         
-        grid.add_row(
-            Panel(sun_table, title="☀ Sun", border_style="yellow"),
-            Panel(moon_table, title="☾ Moon", border_style="white")
-        )
+        # Right Side (Moon)
+        moon_table = Table.grid(padding=(0, 1))
+        moon_table.add_column(style="bold white", width=12) # Label
+        moon_table.add_column() # Value
         
-        # Condition Panel
-        cond_panel = Panel(
-            f"Cloud Cover: {today.cloud_cover}%\n\n[bold]{condition_report}[/bold]",
-            title="✨ Stargazing Forecast",
-            border_style="blue"
-        )
+        moon_table.add_row("☾ Moon", "")
+        moon_table.add_row("Phase:", today.moon_phase.replace("_", " ").title())
+        moon_table.add_row("Rise:", format_time_ampm(today.moonrise) if today.moonrise else "-")
+        moon_table.add_row("Set:", format_time_ampm(today.moonset) if today.moonset else "-")
         
-        main_layout = Table.grid(expand=True)
-        main_layout.add_row(grid)
-        main_layout.add_row(cond_panel)
+        grid.add_row(sun_table, moon_table)
         
-        console.print(Panel(main_layout, title=f"Astronomy: {final_location}", border_style="magenta"))
+        # Divider row (empty)
+        grid.add_row("", "")
+        grid.add_row("", "")
+        
+        # Conditions (Spanning)
+        cond_table = Table.grid(padding=(0, 1))
+        cond_table.add_column(style="bold blue", width=12)
+        cond_table.add_column()
+        
+        cond_table.add_row("☁ Conditions", "")
+        cond_table.add_row("Cloud Cover:", f"{today.cloud_cover}% ({condition_report.split('.')[0]})")
+        cond_table.add_row("Precip:", f"{today.precipitation_probability}%")
+        cond_table.add_row("Stargazing:", f"[italic]{condition_report}[/italic]")
+        
+        # Final Assembly
+        final_layout = Table.grid(expand=True)
+        final_layout.add_row(grid)
+        final_layout.add_row(cond_table)
+        
+        date_str = format_date(today.date)
+        console.print(Panel(
+            final_layout, 
+            title=f"Astronomy: {final_location} ({date_str})", 
+            border_style="magenta",
+            expand=False
+        ))
 
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
