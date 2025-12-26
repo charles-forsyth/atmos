@@ -3,19 +3,23 @@ from typing import Optional
 
 # --- Weather Data Models ---
 
+
 class Temperature(BaseModel):
     value: Optional[float] = 0.0
     units: Optional[str] = "CELSIUS"
+
 
 class Wind(BaseModel):
     speed: Optional[float] = 0.0
     direction: Optional[str] = "N"
     gust: Optional[float] = 0.0
 
+
 class Precipitation(BaseModel):
     type: Optional[str] = "None"
     rate: Optional[float] = 0.0
     probability: Optional[float] = 0.0
+
 
 class CurrentConditions(BaseModel):
     temperature: Temperature

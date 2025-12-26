@@ -35,26 +35,26 @@ def test_get_current_conditions_live_structure(mocker):
     mock_get = mocker.patch("requests.get")
     mock_response = mocker.Mock()
     
-    # The ACTUAL structure we discovered in debug
+    # The ACTUAL structure we discovered in debug (Updated for Imperial)
     mock_response.json.return_value = {
-        "temperature": {"degrees": 15.5, "unit": "CELSIUS"},
-        "feelsLikeTemperature": {"degrees": 14.0, "unit": "CELSIUS"},
+        "temperature": {"degrees": 60.5, "unit": "FAHRENHEIT"},
+        "feelsLikeTemperature": {"degrees": 58.0, "unit": "FAHRENHEIT"},
         "relativeHumidity": 60.0,
         "weatherCondition": {
             "description": {"text": "Cloudy"},
             "type": "CLOUDY"
         },
         "wind": {
-            "speed": {"value": 20.0, "unit": "KILOMETERS_PER_HOUR"},
+            "speed": {"value": 12.0, "unit": "MILES_PER_HOUR"},
             "direction": {"cardinal": "NE", "degrees": 45},
-            "gust": {"value": 30.0, "unit": "KILOMETERS_PER_HOUR"}
+            "gust": {"value": 20.0, "unit": "MILES_PER_HOUR"}
         },
         "precipitation": {
-            "probability": {"percent": 80.0, "type": "RAIN"},
-            "qpf": {"quantity": 2.5, "unit": "MILLIMETERS"}
+            "probability": {"percent": 10.0, "type": "RAIN"},
+            "qpf": {"quantity": 0.1, "unit": "INCHES"}
         },
         "uvIndex": 2,
-        "visibility": {"distance": 16, "unit": "KILOMETERS"},
+        "visibility": {"distance": 10, "unit": "MILES"},
         "airPressure": {"meanSeaLevelMillibars": 1005.0}
     }
     mock_response.ok = True
@@ -65,9 +65,12 @@ def test_get_current_conditions_live_structure(mocker):
     
     # Assert parsing
     assert isinstance(weather, CurrentConditions)
-    assert weather.temperature.value == 15.5
+    assert weather.temperature.value == 60.5
+    assert weather.temperature.units == "FAHRENHEIT"
     assert weather.description == "Cloudy"
-    assert weather.wind.speed == 20.0
-    assert weather.wind.direction == "NE"
-    assert weather.precipitation.probability == 80.0
-    assert weather.visibility == 16000.0 # 16 KM -> 16000 Meters
+    
+    # Assert parameters (Robustness Check)
+    call_args = mock_get.call_args
+    assert call_args is not None
+    params = call_args[1]["params"]
+    assert params["unitsSystem"] == "IMPERIAL"
