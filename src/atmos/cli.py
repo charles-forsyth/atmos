@@ -465,8 +465,8 @@ def stars(location_arg, location):
 @main.command()
 @click.argument("location_arg", required=False)
 @click.option("-L", "--location", help="City or location name")
-@click.option("--activity", required=True, help="Activity (hiking, bbq, beach, stargazing)")
-@click.option("--days", default=10, help="Search range (default: 10 days)")
+@click.option("-a", "--activity", required=True, help="Activity (hiking, bbq, beach, stargazing)")
+@click.option("-d", "--days", default=10, help="Search range (default: 10 days)")
 def find(location_arg, location, activity, days):
     """
     Find the best day for an activity.
