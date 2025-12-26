@@ -19,7 +19,10 @@ class AtmosClient:
         """Resolves a string location to (lat, lng)."""
         params = {"address": location, "key": self.api_key}
         resp = requests.get(self.geocode_url, params=params)
-        resp.raise_for_status()
+        
+        if not resp.ok:
+            raise ValueError(f"Geocoding Error ({resp.status_code}): {resp.text}")
+            
         data = resp.json()
         
         if not data.get("results"):
@@ -38,22 +41,19 @@ class AtmosClient:
         params = {
             "location": f"{lat},{lng}",
             "key": self.api_key,
-            "units": "METRIC" # Request Metric by default, logic handles display
+            "units": "METRIC"
         }
         
         resp = requests.get(url, params=params)
-        resp.raise_for_status()
+        
+        if not resp.ok:
+             # Capture the full error details from the API
+            raise ValueError(f"Weather API Error ({resp.status_code}): {resp.text}")
+
         data = resp.json()
         
-        # The API returns a 'currentConditions' object inside the response usually,
-        # or sometimes direct fields depending on the version. 
-        # We assume the standard structure:
-        # { "currentConditions": { "temperature": { "value": 20, "units": "CELSIUS" }, ... } }
-        
-        # If the structure is flat, we adjust. Based on docs, it's usually currentConditions key.
         cond = data.get("currentConditions", data)
         
-        # Parse Temperature
         temp_data = cond.get("temperature", {})
         temp = Temperature(
             value=temp_data.get("value", 0.0),
@@ -66,15 +66,13 @@ class AtmosClient:
             units=feels_like_data.get("units", "CELSIUS")
         )
 
-        # Parse Wind
         wind_data = cond.get("wind", {})
         wind = Wind(
             speed=wind_data.get("speed", 0.0),
-            direction=wind_data.get("direction", "N"), # degrees or cardinal? API usually gives degrees or string
+            direction=wind_data.get("direction", "N"),
             gust=wind_data.get("gust", 0.0)
         )
 
-        # Parse Precipitation
         precip_data = cond.get("precipitation", {})
         precip = Precipitation(
             type=precip_data.get("type", "None"),
@@ -86,12 +84,12 @@ class AtmosClient:
             temperature=temp,
             feels_like=feels_like,
             humidity=cond.get("humidity", 0.0),
-            description=cond.get("conditionDescription", "Unknown"), # e.g. "Sunny"
+            description=cond.get("conditionDescription", "Unknown"),
             wind=wind,
             precipitation=precip,
             uv_index=cond.get("uvIndex", 0),
-            visibility=cond.get("visibility", 10000.0), # meters
-            pressure=cond.get("pressure", 1013.25) # hPa
+            visibility=cond.get("visibility", 10000.0),
+            pressure=cond.get("pressure", 1013.25)
         )
 
 # Global client instance
