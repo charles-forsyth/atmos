@@ -11,6 +11,7 @@ from atmos.core import client
 from atmos.places import places_manager
 from atmos.utils import get_stargazing_conditions
 from atmos.evaluator import SuitabilityEvaluator
+from atmos.exceptions import AtmosAPIError
 
 console = Console()
 
@@ -19,6 +20,7 @@ def format_dt(dt: datetime) -> str:
     return local_dt.strftime("%H:%M")
 
 def format_time_ampm(dt: datetime) -> str:
+    """Formats time as 07:18 AM."""
     local_dt = dt.astimezone()
     return local_dt.strftime("%I:%M %p")
 
@@ -44,7 +46,7 @@ def main():
 
     Powered by Google Maps Platform Weather API.
 
-    
+    \b
     EXAMPLES:
       atmos "New York"              # Current weather
       atmos forecast -L "London"    # 5-day forecast
@@ -65,7 +67,7 @@ def current(location_arg, location):
 
     The default command. You can omit 'current' and just type the location.
 
-    
+    \b
     EXAMPLES:
       atmos "San Francisco"
       atmos current -L "Tokyo"
@@ -112,6 +114,8 @@ def current(location_arg, location):
 
         console.print(Panel(content, title=header_text, border_style="cyan"))
 
+    except AtmosAPIError as e:
+        console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
 
@@ -126,7 +130,7 @@ def history(location_arg, location, hours):
 
     Shows hourly data for the past N hours (default 24).
 
-    
+    \b
     EXAMPLES:
       atmos history -L "Seattle"
       atmos history --hours 12
@@ -168,6 +172,8 @@ def history(location_arg, location, hours):
             
         console.print(table)
 
+    except AtmosAPIError as e:
+        console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
 
@@ -182,7 +188,7 @@ def forecast(location_arg, location, days, hourly):
 
     Shows daily summary by default, or hourly details with --hourly.
 
-    
+    \b
     EXAMPLES:
       atmos forecast -L "Paris"
       atmos forecast --days 10
@@ -241,6 +247,8 @@ def forecast(location_arg, location, days, hourly):
                 table.add_row(date_str, temp_str, item.description, f"{item.precipitation_probability}%", sun_str)
             console.print(table)
 
+    except AtmosAPIError as e:
+        console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
 
@@ -253,7 +261,7 @@ def alert(location_arg, location):
 
     Displays active warnings, watches, and advisories.
 
-    
+    \b
     EXAMPLES:
       atmos alert
       atmos alert -L "Miami, FL"
@@ -284,6 +292,8 @@ def alert(location_arg, location):
             )
             console.print(panel)
 
+    except AtmosAPIError as e:
+        console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
 
@@ -298,7 +308,7 @@ def graph(location_arg, location, hours, metric):
 
     Draws a chart directly in the terminal.
 
-    
+    \b
     EXAMPLES:
       atmos graph
       atmos graph --metric precip --hours 48
@@ -352,6 +362,8 @@ def graph(location_arg, location, hours, metric):
         end_t = format_dt(items[-1].timestamp)
         console.print(f"[dim]Time: {start_t} -> {end_t}[/dim]")
 
+    except AtmosAPIError as e:
+        console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
 
@@ -364,7 +376,7 @@ def stars(location_arg, location):
 
     Shows Sun/Moon rise/set times, phases, and a stargazing condition report.
 
-    
+    \b
     EXAMPLES:
       atmos stars
       atmos stars -L "Joshua Tree"
@@ -445,6 +457,8 @@ def stars(location_arg, location):
             expand=False
         ))
 
+    except AtmosAPIError as e:
+        console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
 
@@ -459,11 +473,11 @@ def find(location_arg, location, activity, days):
 
     Analyzes forecast conditions against activity rules.
 
-    
+    \b
     ACTIVITIES:
       hiking, bbq, beach, stargazing, running
 
-    
+    \b
     EXAMPLES:
       atmos find --activity hiking
       atmos find -L "San Diego" --activity beach --days 5
@@ -519,6 +533,8 @@ def find(location_arg, location, activity, days):
             
         console.print(table)
 
+    except AtmosAPIError as e:
+        console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
 
