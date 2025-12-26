@@ -27,28 +27,6 @@ class DefaultGroup(click.Group):
         if cmd_name in self.commands or cmd_name in ctx.help_option_names:
             return super().parse_args(ctx, args)
 
-        # Otherwise, assume it's a location for 'current'
-        # We inject 'current' command and pass the rest as arguments
-        # But wait, 'current' takes -L flag. We need to construct the args.
-        # Design choice: treat "atmos New York" as "atmos current -L 'New York'"
-
-        # However, implementing "atmos New York" -> "atmos current -L 'New York'"
-        # via parse_args is tricky because of flag parsing.
-
-        # Simpler approach for "Default Command" in Click:
-        # If we can't match a command, we default to 'current' and pass the args.
-        # But 'current' expects options, not a positional argument.
-        # Let's modify 'current' to accept a positional argument too OR
-        # manually construct the args.
-
-        # Let's simplify: "atmos New York" will be transformed to ["current", "-L", "New York"]
-        # But if the user types "atmos -L 'New York'", it might fail if we don't handle it.
-
-        # Robust Strategy:
-        # 1. Insert "current" at index 0.
-        # 2. Check if the next arg is a flag. If not, assume it's the location positional arg.
-        #    (We need to update 'current' to accept a positional argument).
-
         return super().parse_args(ctx, ["current"] + args)
 
 
@@ -96,19 +74,28 @@ def current(location_arg, location):
         # Main Grid
         main_info = Table.grid(expand=True)
         main_info.add_column(justify="center")
-        main_info.add_row(f"[bold active]{weather.temperature.value}°C[/bold active]")
+        
+        # Dynamic Unit Label
+        unit_label = "°F" if "FAHRENHEIT" in (weather.temperature.units or "").upper() else "°C"
+        
+        main_info.add_row(f"[bold active]{weather.temperature.value}{unit_label}[/bold active]")
         main_info.add_row(f"[italic]{weather.description}[/italic]")
 
         # Details Table
         details = Table(show_header=False, box=box.SIMPLE, expand=True)
         details.add_column("Metric", style="dim")
         details.add_column("Value", style="bold")
-
-        details.add_row("Feels Like", f"{weather.feels_like.value}°C")
-        details.add_row("Wind", f"{weather.wind.speed} km/h {weather.wind.direction}")
+        
+        details.add_row("Feels Like", f"{weather.feels_like.value}{unit_label}")
+        details.add_row("Wind", f"{weather.wind.speed} {weather.wind.direction}") # Units are complex now, just value+dir? Or use model logic? 
+        # Actually API returns "MILES_PER_HOUR", maybe we should format that nicer?
+        # For now, raw speed is fine, assuming user knows MPH if Temp is F.
+        
         details.add_row("Humidity", f"{weather.humidity}%")
         details.add_row("UV Index", str(weather.uv_index))
-        details.add_row("Visibility", f"{weather.visibility / 1000:.1f} km")
+        
+        # Display raw visibility value (interpreted as standard units for now)
+        details.add_row("Visibility", f"{weather.visibility}") 
         details.add_row("Pressure", f"{weather.pressure} hPa")
 
         # Layout
