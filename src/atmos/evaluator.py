@@ -36,7 +36,6 @@ class SuitabilityEvaluator:
                 resolved = True
                 break
         
-        # If unknown activity, generic logic
         if not resolved:
             reasons.append("Unknown activity (Using generic logic)")
         
@@ -55,14 +54,15 @@ class SuitabilityEvaluator:
         cloud = day.cloud_cover or 0
 
         # --- Base Rules ---
-        
-        # Rain is generally bad
         if precip > 70:
             score -= 80
             reasons.append(f"High rain chance ({precip}%)")
         elif precip > 30:
             score -= 30
             reasons.append(f"Chance of rain ({precip}%)")
+        elif precip < 10:
+            # reasons.append("Dry") # Optional
+            pass
             
         # --- Specific Rules ---
         
@@ -70,9 +70,13 @@ class SuitabilityEvaluator:
             if high > 90:
                 score -= 30
                 reasons.append(f"Hot ({high}°F)")
+            elif high > 60 and high < 80:
+                reasons.append("Great temp")
+                
             if high < 30:
                 score -= 20
                 reasons.append(f"Cold ({high}°F)")
+                
             if wind > 20:
                 score -= 30
                 reasons.append(f"Windy ({wind} mph)")
@@ -80,35 +84,49 @@ class SuitabilityEvaluator:
         elif act == "bbq":
             if high < 60:
                 score -= 30
-                reasons.append("Too cold")
+                reasons.append(f"Chilly ({high}°F)")
+            elif high > 70:
+                reasons.append("Warm")
+                
             if precip > 20: 
-                score -= 30 
+                score -= 30
+                reasons.append("Rain risk")
+            
             if wind > 15:
                 score -= 20
-                reasons.append("Windy")
+                reasons.append("Breezy")
                 
         elif act == "stargazing":
-            score = 100 # Reset
+            score = 100 
             if cloud > 50:
                 score -= 80
                 reasons.append(f"Cloudy ({cloud}%)")
             elif cloud > 20:
                 score -= 30
                 reasons.append(f"Some clouds ({cloud}%)")
+            elif cloud < 10:
+                reasons.append("Clear skies")
             
-            # Penalize Full Moon
             phase = (day.moon_phase or "").upper()
             if "FULL" in phase or "GIBBOUS" in phase:
                 score -= 40
                 reasons.append(f"Bright Moon ({day.moon_phase})")
+            elif "NEW" in phase or "CRESCENT" in phase:
+                reasons.append("Dark sky")
                 
         elif act == "beach":
             if high < 75:
                 score -= 50
-                reasons.append("Too cold")
+                reasons.append(f"Too cold ({high}°F)")
+            elif high > 85:
+                reasons.append("Hot & Sunny")
+                
             if cloud > 60:
                 score -= 20
                 reasons.append("No sun")
+            elif cloud < 20:
+                reasons.append("Sunny")
+                
             if wind > 15:
                 score -= 10
                 reasons.append("Breezy")
@@ -116,17 +134,18 @@ class SuitabilityEvaluator:
         elif act == "running":
             if high > 80:
                 score -= 40
-                reasons.append(f"Too hot ({high}°F)")
+                reasons.append(f"Heat ({high}°F)")
             elif high > 70:
                 score -= 10
                 reasons.append("Warm")
+            elif high >= 45 and high <= 65:
+                reasons.append("Perfect running temp")
             elif high < 32:
                 score -= 20
                 reasons.append("Freezing")
             
-            # Runners hate rain but tolerate drizzle
             if precip > 60:
-                score -= 20 # Already penalized by base rule, add more?
+                score -= 20
             
         elif act == "cycling":
             if wind > 20:
@@ -134,28 +153,34 @@ class SuitabilityEvaluator:
                 reasons.append(f"High Wind ({wind} mph)")
             elif wind > 12:
                 score -= 20
-                reasons.append(f"Breezy ({wind} mph)")
+                reasons.append(f"Headwind ({wind} mph)")
+            else:
+                reasons.append("Low wind")
             
             if precip > 20:
-                score -= 40 # Slippery
-                reasons.append("Wet roads")
+                score -= 40
+                reasons.append("Slippery")
 
         elif act == "golf":
             if wind > 15:
                 score -= 40
-                reasons.append("Wind affects ball")
+                reasons.append("Windy")
             if precip > 20:
                 score -= 50
                 reasons.append("Rain")
             if high < 50:
                 score -= 20
                 reasons.append("Chilly")
+            elif high >= 65 and high <= 85:
+                reasons.append("Ideal temp")
 
         elif act == "sailing":
-            score = 100 # Reset base
+            score = 100 
             if wind < 5:
                 score -= 50
                 reasons.append("No wind (Calm)")
+            elif wind >= 10 and wind <= 20:
+                reasons.append("Perfect wind")
             elif wind > 20:
                 score -= 60
                 reasons.append(f"Dangerous Wind ({wind} mph)")
@@ -165,46 +190,49 @@ class SuitabilityEvaluator:
             
             if high < 50:
                 score -= 20
-                reasons.append("Cold on water")
+                reasons.append("Cold spray")
 
         elif act == "skiing":
             score = 100
             if high > 40:
                 score -= 80
-                reasons.append(f"Too warm ({high}°F)")
+                reasons.append(f"Slushy ({high}°F)")
             elif high > 32:
                 score -= 40
-                reasons.append("Mushy/Melting")
+                reasons.append("Melting")
+            elif high < 10:
+                reasons.append("Frigid")
+            else:
+                reasons.append("Good snow temp")
             
-            # Snow is good!
-            # We don't have precipitation TYPE easily accessible in daily sum yet
-            # But if precip prob is high and temp is low, it's likely snow.
             if precip > 50 and high < 32:
-                score += 10 # Bonus
+                score += 10
                 reasons.append("Fresh Powder likely")
 
         elif act == "drone":
             if wind > 15:
                 score -= 100
                 reasons.append("Wind unsafe")
+            else:
+                reasons.append("Stable air")
+                
             if precip > 10:
                 score -= 100
                 reasons.append("Rain risk")
             if cloud > 90:
-                score -= 20 # Visibility
+                score -= 20
             if high < 32:
-                score -= 20 # Battery efficiency
+                score -= 20 
 
         elif act == "photography":
-            # Photographers like Golden Hour / Blue Hour (Sunrise/Sunset)
-            # They dislike flat grey sky (100% cloud) or empty blue sky (0% cloud) sometimes?
-            # Let's say overcast is bad.
             if cloud > 90:
                 score -= 40
                 reasons.append("Flat light")
             elif cloud == 0:
                 score -= 10
                 reasons.append("Harsh light")
+            elif cloud >= 20 and cloud <= 70:
+                reasons.append("Dramatic sky")
             
             if precip > 30:
                 score -= 50
@@ -215,13 +243,18 @@ class SuitabilityEvaluator:
                 score -= 40
                 reasons.append("Windy")
             if precip > 10:
-                score -= 80 # Wet court
+                score -= 80 
                 reasons.append("Wet court")
+            elif high >= 60 and high <= 80:
+                reasons.append("Great weather")
 
         elif act == "camping":
             if low < 40:
                 score -= 40
                 reasons.append(f"Cold night ({low}°F)")
+            elif low > 50:
+                reasons.append("Mild night")
+                
             if precip > 30:
                 score -= 60
                 reasons.append("Rain")
@@ -230,11 +263,17 @@ class SuitabilityEvaluator:
             if wind > 15:
                 score -= 40
                 reasons.append("Choppy water")
-            # Barometric pressure trends are best but daily data is limited
+            else:
+                reasons.append("Calm water")
             if precip > 60:
                 score -= 30
                 reasons.append("Heavy rain")
 
         # Cap score
         score = max(0, min(100, score))
+        
+        # If perfect score and no reasons, add a generic good one
+        if score == 100 and not reasons:
+            reasons.append("Excellent conditions")
+            
         return score, reasons
