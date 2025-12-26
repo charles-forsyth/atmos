@@ -79,8 +79,11 @@ This is the strict, professional engineering standard for building robust, secur
 
 1.  **User Update:**
     *   `uv tool upgrade <package_name> --force`
-2.  **Functional Verification:**
-    *   Run a real-world command with the installed tool (e.g., `atmos current -L "New York"`) to confirm end-to-end success.
+2.  **Functional Verification (CRITICAL):**
+    *   Run a real-world command with the installed tool (e.g., `atmos current -L "New York"`).
+    *   **FAILURE PROTOCOL:** If the functional test fails, **DO NOT STOP**. Do not ask for permission.
+    *   **IMMEDIATELY** enter a fix cycle: Branch -> Fix -> Test -> Push -> Merge -> Verify.
+    *   Repeat until the tool is proven to work in the real environment.
 
 ---
 
