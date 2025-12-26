@@ -5,6 +5,7 @@ from rich.table import Table
 from rich.text import Text
 from rich import box
 from datetime import datetime
+import asciichartpy
 
 from atmos.core import client
 from atmos.places import places_manager
@@ -226,6 +227,71 @@ def alert(location_arg, location):
                 border_style="red"
             )
             console.print(panel)
+
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+
+@main.command()
+@click.argument("location_arg", required=False)
+@click.option("-L", "--location", help="City or location name")
+@click.option("--hours", default=24, help="Number of hours to graph (default: 24)")
+@click.option("--metric", default="temp", type=click.Choice(['temp', 'precip', 'wind']), help="Metric to graph")
+def graph(location_arg, location, hours, metric):
+    """Visualize weather trends (ASCII Graph)."""
+    target = location_arg or location
+    if not target:
+        console.print("[bold red]Error:[/bold red] Missing location.")
+        return
+
+    saved_address = places_manager.get(target)
+    final_location = saved_address if saved_address else target
+    
+    try:
+        console.print(f"[cyan]Fetching forecast for {final_location}...[/cyan]")
+        items = client.get_hourly_forecast(final_location, hours=hours)
+        
+        if not items:
+            console.print("[yellow]No data available.[/yellow]")
+            return
+            
+        series = []
+        labels = []
+        
+        # Build series
+        for i, item in enumerate(items):
+            val = 0.0
+            if metric == 'temp':
+                val = item.temperature.value or 0.0
+            elif metric == 'precip':
+                val = item.precipitation.probability or 0.0
+            elif metric == 'wind':
+                val = item.wind.speed or 0.0
+            
+            series.append(val)
+            # Add labels every few ticks to avoid clutter
+            if i % 4 == 0:
+                labels.append(format_dt(item.timestamp))
+            else:
+                labels.append("")
+
+        # Render Chart
+        console.print(f"\n[bold]{metric.title()} Trend ({hours}h)[/bold]")
+        
+        # Configure chart color
+        cfg = {"height": 15, "format": "{:8.1f}"}
+        if metric == 'temp':
+            cfg["colors"] = [asciichartpy.red]
+        elif metric == 'precip':
+            cfg["colors"] = [asciichartpy.blue]
+        
+        chart = asciichartpy.plot(series, cfg)
+        console.print(chart)
+        
+        # Print simple legend/timeline
+        # (Asciichartpy doesn't support X-axis labels easily, so we can just print a start/end note)
+        start_t = format_dt(items[0].timestamp)
+        end_t = format_dt(items[-1].timestamp)
+        console.print(f"[dim]Time: {start_t} -> {end_t}[/dim]")
 
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")

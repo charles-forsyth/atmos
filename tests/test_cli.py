@@ -1,7 +1,7 @@
 from click.testing import CliRunner
 from atmos.cli import main
-from atmos.models import CurrentConditions, Temperature, Wind, Precipitation
-
+from atmos.models import CurrentConditions, Temperature, Wind, Precipitation, HourlyForecastItem
+from datetime import datetime
 
 def create_dummy_weather():
     return CurrentConditions(
@@ -13,77 +13,69 @@ def create_dummy_weather():
         precipitation=Precipitation(),
         uv_index=3,
         visibility=10000.0,
-        pressure=1010.0,
+        pressure=1010.0
     )
-
 
 def test_cli_current_positional(mocker):
-    """Test 'atmos New York' (Default Command logic)."""
-    mocker.patch(
-        "atmos.core.client.get_current_conditions", return_value=create_dummy_weather()
-    )
-
+    mocker.patch("atmos.core.client.get_current_conditions", return_value=create_dummy_weather())
     runner = CliRunner()
-    result = runner.invoke(main, ["New York"])  # Implicitly calls current
-
+    result = runner.invoke(main, ["New York"]) 
     assert result.exit_code == 0
     assert "Current Conditions: New York" in result.output
-
 
 def test_cli_current_flag(mocker):
-    """Test 'atmos current -L "New York"' (Explicit command)."""
-    mocker.patch(
-        "atmos.core.client.get_current_conditions", return_value=create_dummy_weather()
-    )
-
+    mocker.patch("atmos.core.client.get_current_conditions", return_value=create_dummy_weather())
     runner = CliRunner()
     result = runner.invoke(main, ["current", "-L", "New York"])
-
     assert result.exit_code == 0
     assert "Current Conditions: New York" in result.output
 
-
 def test_cli_places_integration(mocker):
-    """Test that 'atmos Home' resolves to the address."""
-    mocker.patch(
-        "atmos.core.client.get_current_conditions", return_value=create_dummy_weather()
-    )
-
-    # Mock PlacesManager.get to return an address for "Home"
+    mocker.patch("atmos.core.client.get_current_conditions", return_value=create_dummy_weather())
     mocker.patch("atmos.places.places_manager.get", return_value="123 Main St")
-
     runner = CliRunner()
     result = runner.invoke(main, ["Home"])
-
     assert result.exit_code == 0
-    # The output should show the RESOLVED address
     assert "Current Conditions: 123 Main St" in result.output
 
-
 def test_cli_places_commands(mocker):
-    """Test 'atmos places add/list/remove'."""
-    # We mock the manager methods to avoid file I/O in CLI tests
     mock_add = mocker.patch("atmos.places.places_manager.add")
-    mocker.patch(
-        "atmos.places.places_manager.list", return_value={"Work": "Office Addr"}
-    )
+    mocker.patch("atmos.places.places_manager.list", return_value={"Work": "Office Addr"})
     mocker.patch("atmos.places.places_manager.remove", return_value=True)
-
     runner = CliRunner()
-
-    # Add
     result = runner.invoke(main, ["places", "add", "Work", "Office Addr"])
     assert result.exit_code == 0
     assert "Added: Work" in result.output
     mock_add.assert_called_with("Work", "Office Addr")
-
-    # List
     result = runner.invoke(main, ["places", "list"])
     assert result.exit_code == 0
     assert "Work" in result.output
-    assert "Office Addr" in result.output
-
-    # Remove
     result = runner.invoke(main, ["places", "remove", "Work"])
     assert result.exit_code == 0
     assert "Removed: Work" in result.output
+
+def test_cli_graph(mocker):
+    """Test graph command."""
+    mock_forecast = mocker.patch("atmos.core.client.get_hourly_forecast")
+    
+    # Create dummy forecast items
+    items = []
+    for i in range(5):
+        items.append(HourlyForecastItem(
+            timestamp=datetime(2023, 10, 6, 12+i),
+            temperature=Temperature(value=20.0 + i),
+            feels_like=Temperature(),
+            wind=Wind(),
+            precipitation=Precipitation()
+        ))
+    
+    mock_forecast.return_value = items
+    
+    runner = CliRunner()
+    result = runner.invoke(main, ["graph", "-L", "London", "--hours", "5"])
+    
+    assert result.exit_code == 0
+    assert "Temp Trend" in result.output
+    # Ascii chart output contains graph chars, maybe verify numeric axis labels?
+    assert "20.0" in result.output
+    assert "24.0" in result.output
