@@ -35,11 +35,6 @@ class DefaultGroup(click.Group):
 def main():
     """
     Atmos: A professional CLI weather tool.
-
-    Examples:
-      atmos "New York"      # Get current weather
-      atmos places add Home "123 Main St"
-      atmos places list
     """
     pass
 
@@ -48,57 +43,39 @@ def main():
 @click.argument("location_arg", required=False)
 @click.option("-L", "--location", help="City or location name")
 def current(location_arg, location):
-    """
-    Get current weather conditions.
-
-    Accepts location as a positional argument or via -L flag.
-    """
-    # Resolve location: Positional > Flag > Error
+    """Get current weather conditions."""
     target = location_arg or location
     if not target:
-        console.print(
-            "[bold red]Error:[/bold red] Missing location. Usage: [green]atmos <LOCATION>[/green]"
-        )
+        console.print("[bold red]Error:[/bold red] Missing location.")
         return
 
-    # Check Address Book first
     saved_address = places_manager.get(target)
     final_location = saved_address if saved_address else target
 
     try:
         weather = client.get_current_conditions(final_location)
 
-        # --- UI Construction ---
         header_text = Text(f"Current Conditions: {final_location}", style="bold cyan")
 
-        # Main Grid
         main_info = Table.grid(expand=True)
         main_info.add_column(justify="center")
         
-        # Dynamic Unit Label
         unit_label = "°F" if "FAHRENHEIT" in (weather.temperature.units or "").upper() else "°C"
         
         main_info.add_row(f"[bold active]{weather.temperature.value}{unit_label}[/bold active]")
         main_info.add_row(f"[italic]{weather.description}[/italic]")
 
-        # Details Table
         details = Table(show_header=False, box=box.SIMPLE, expand=True)
         details.add_column("Metric", style="dim")
         details.add_column("Value", style="bold")
         
         details.add_row("Feels Like", f"{weather.feels_like.value}{unit_label}")
-        details.add_row("Wind", f"{weather.wind.speed} {weather.wind.direction}") # Units are complex now, just value+dir? Or use model logic? 
-        # Actually API returns "MILES_PER_HOUR", maybe we should format that nicer?
-        # For now, raw speed is fine, assuming user knows MPH if Temp is F.
-        
+        details.add_row("Wind", f"{weather.wind.speed} {weather.wind.direction}")
         details.add_row("Humidity", f"{weather.humidity}%")
         details.add_row("UV Index", str(weather.uv_index))
-        
-        # Display raw visibility value (interpreted as standard units for now)
         details.add_row("Visibility", f"{weather.visibility}") 
         details.add_row("Pressure", f"{weather.pressure} hPa")
 
-        # Layout
         content = Table.grid(expand=True, padding=(1, 2))
         content.add_column(ratio=1)
         content.add_column(ratio=1)
@@ -113,14 +90,64 @@ def current(location_arg, location):
         console.print(f"[bold red]Error:[/bold red] {e}")
 
 
-# --- Places Management ---
+@main.command()
+@click.argument("location_arg", required=False)
+@click.option("-L", "--location", help="City or location name")
+@click.option("--hours", default=24, help="Number of hours to look back (default: 24)")
+def history(location_arg, location, hours):
+    """
+    Get historical weather data.
+    """
+    target = location_arg or location
+    if not target:
+        console.print("[bold red]Error:[/bold red] Missing location.")
+        return
 
+    saved_address = places_manager.get(target)
+    final_location = saved_address if saved_address else target
+    
+    try:
+        console.print(f"[cyan]Fetching history for {final_location} (Last {hours} hours)...[/cyan]")
+        history_items = client.get_hourly_history(final_location, hours=hours)
+        
+        if not history_items:
+            console.print("[yellow]No history data returned.[/yellow]")
+            return
+
+        table = Table(title=f"History: {final_location}", box=box.SIMPLE_HEAD)
+        table.add_column("Time", style="dim")
+        table.add_column("Temp", style="bold cyan")
+        table.add_column("Condition", style="white")
+        table.add_column("Wind", style="green")
+        table.add_column("Precip", style="blue")
+        
+        for item in history_items:
+            # Format time: HH:MM
+            time_str = item.timestamp.strftime("%H:%M")
+            # If date changes? maybe show day too? For 24h, mostly ok.
+            
+            unit_label = "°F" if "FAHRENHEIT" in (item.temperature.units or "").upper() else "°C"
+            temp_str = f"{item.temperature.value}{unit_label}"
+            
+            wind_str = f"{item.wind.speed} {item.wind.direction}"
+            precip_str = f"{item.precipitation.probability}%"
+            if item.precipitation.rate and item.precipitation.rate > 0:
+                 precip_str += f" ({item.precipitation.rate})"
+            
+            table.add_row(time_str, temp_str, item.description, wind_str, precip_str)
+            
+        console.print(table)
+
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+
+
+# --- Places Management ---
 
 @main.group()
 def places():
     """Manage saved locations (Address Book)."""
     pass
-
 
 @places.command("add")
 @click.argument("name")
@@ -129,7 +156,6 @@ def places_add(name, address):
     """Save a location."""
     places_manager.add(name, address)
     console.print(f"[green]Added:[/green] {name} -> {address}")
-
 
 @places.command("list")
 def places_list():
@@ -147,7 +173,6 @@ def places_list():
         table.add_row(name, address)
 
     console.print(table)
-
 
 @places.command("remove")
 @click.argument("name")
