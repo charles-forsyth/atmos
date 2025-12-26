@@ -10,6 +10,7 @@ import asciichartpy
 from atmos.core import client
 from atmos.places import places_manager
 from atmos.utils import get_stargazing_conditions
+from atmos.evaluator import SuitabilityEvaluator
 
 console = Console()
 
@@ -319,7 +320,6 @@ def stars(location_arg, location):
             
         today = items[0]
         
-        # Stargazing logic
         condition_report = get_stargazing_conditions(today.cloud_cover or 0, today.moon_phase or "Unknown")
         
         # Calculate Daylight
@@ -384,6 +384,67 @@ def stars(location_arg, location):
             border_style="magenta",
             expand=False
         ))
+
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+
+@main.command()
+@click.argument("location_arg", required=False)
+@click.option("-L", "--location", help="City or location name")
+@click.option("--activity", required=True, help="Activity (hiking, bbq, beach, stargazing)")
+@click.option("--days", default=10, help="Search range (default: 10 days)")
+def find(location_arg, location, activity, days):
+    """Find the best day for an activity."""
+    target = location_arg or location
+    if not target:
+        console.print("[bold red]Error:[/bold red] Missing location.")
+        return
+
+    saved_address = places_manager.get(target)
+    final_location = saved_address if saved_address else target
+    
+    try:
+        console.print(f"[cyan]Searching best day for [bold]{activity}[/bold] in {final_location} (Next {days} days)...[/cyan]")
+        items = client.get_daily_forecast(final_location, days=days)
+        
+        scored_days = []
+        for item in items:
+            score, reasons = SuitabilityEvaluator.evaluate(item, activity)
+            scored_days.append({
+                "date": item.date,
+                "score": score,
+                "reasons": reasons,
+                "item": item
+            })
+            
+        # Sort by Score DESC
+        scored_days.sort(key=lambda x: x["score"], reverse=True)
+        
+        # Display Top 3
+        table = Table(title=f"Best Days for {activity.title()}", box=box.SIMPLE_HEAD)
+        table.add_column("Rank", style="dim")
+        table.add_column("Date", style="bold")
+        table.add_column("Score", justify="center")
+        table.add_column("Forecast")
+        table.add_column("Notes", style="red")
+        
+        for i, d in enumerate(scored_days[:5]):
+            score_color = "green" if d["score"] >= 80 else "yellow" if d["score"] >= 50 else "red"
+            score_str = f"[{score_color}]{d['score']}/100[/{score_color}]"
+            
+            date_str = format_date(d["date"])
+            
+            # Forecast summary
+            f = d["item"]
+            high = f.high_temp.value
+            cond = f.description
+            summary = f"{high}°F, {cond}"
+            
+            notes = ", ".join(d["reasons"])
+            
+            table.add_row(str(i+1), date_str, score_str, summary, notes)
+            
+        console.print(table)
 
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")

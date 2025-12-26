@@ -258,6 +258,18 @@ class AtmosClient:
             
             cloud_cover = target_forecast.get("cloudCover", 0)
             
+            # Wind parsing
+            wind_obj = target_forecast.get("wind", {})
+            speed_obj = wind_obj.get("speed", {})
+            gust_obj = wind_obj.get("gust", {})
+            direction_obj = wind_obj.get("direction", {})
+            
+            max_wind = Wind(
+                speed=speed_obj.get("value", 0.0),
+                direction=direction_obj.get("cardinal", "N"),
+                gust=gust_obj.get("value", 0.0)
+            )
+            
             sun_obj = entry.get("sunEvents", {})
             sunrise_str = sun_obj.get("sunriseTime")
             sunset_str = sun_obj.get("sunsetTime")
@@ -286,7 +298,8 @@ class AtmosClient:
                 moon_phase=moon_phase,
                 moonrise=moonrise,
                 moonset=moonset,
-                cloud_cover=cloud_cover
+                cloud_cover=cloud_cover,
+                max_wind=max_wind
             ))
             
         return items
