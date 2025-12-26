@@ -52,7 +52,8 @@ class DailyForecastItem(BaseModel):
     moon_phase: Optional[str] = "Unknown"
     moonrise: Optional[datetime] = None
     moonset: Optional[datetime] = None
-    cloud_cover: Optional[int] = 0 # Percentage
+    cloud_cover: Optional[int] = 0
+    max_wind: Optional[Wind] = None # Added
 
 class WeatherAlert(BaseModel):
     headline: str

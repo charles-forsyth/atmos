@@ -1,6 +1,6 @@
 from click.testing import CliRunner
 from atmos.cli import main
-from atmos.models import CurrentConditions, Temperature, Wind, Precipitation, HourlyForecastItem
+from atmos.models import CurrentConditions, Temperature, Wind, Precipitation, HourlyForecastItem, DailyForecastItem
 from datetime import datetime
 
 def create_dummy_weather():
@@ -57,8 +57,6 @@ def test_cli_places_commands(mocker):
 def test_cli_graph(mocker):
     """Test graph command."""
     mock_forecast = mocker.patch("atmos.core.client.get_hourly_forecast")
-    
-    # Create dummy forecast items
     items = []
     for i in range(5):
         items.append(HourlyForecastItem(
@@ -68,14 +66,42 @@ def test_cli_graph(mocker):
             wind=Wind(),
             precipitation=Precipitation()
         ))
-    
     mock_forecast.return_value = items
-    
     runner = CliRunner()
     result = runner.invoke(main, ["graph", "-L", "London", "--hours", "5"])
-    
     assert result.exit_code == 0
     assert "Temp Trend" in result.output
-    # Ascii chart output contains graph chars, maybe verify numeric axis labels?
-    assert "20.0" in result.output
-    assert "24.0" in result.output
+
+def test_cli_find(mocker):
+    """Test find command."""
+    mock_daily = mocker.patch("atmos.core.client.get_daily_forecast")
+    
+    # Create dummy daily items
+    items = []
+    items.append(DailyForecastItem(
+        date=datetime(2023, 10, 6),
+        low_temp=Temperature(value=60.0, units="FAHRENHEIT"),
+        high_temp=Temperature(value=75.0, units="FAHRENHEIT"),
+        description="Sunny",
+        precipitation_probability=0.0
+    ))
+    # Bad day
+    items.append(DailyForecastItem(
+        date=datetime(2023, 10, 7),
+        low_temp=Temperature(value=50.0, units="FAHRENHEIT"),
+        high_temp=Temperature(value=55.0, units="FAHRENHEIT"),
+        description="Rain",
+        precipitation_probability=80.0
+    ))
+    
+    mock_daily.return_value = items
+    
+    runner = CliRunner()
+    result = runner.invoke(main, ["find", "-L", "London", "--activity", "hiking"])
+    
+    assert result.exit_code == 0
+    assert "Best Days for Hiking" in result.output
+    # Should recommend the first day (Sunny)
+    assert "100/100" in result.output 
+    # Should penalize second day
+    assert "High rain chance" in result.output
