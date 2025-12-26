@@ -112,7 +112,6 @@ class AtmosClient:
         
         # Visibility
         vis_obj = cond.get("visibility", {})
-        # Use raw val, let UI handle unit display if needed.
         vis_val = vis_obj.get("distance", 10.0)
         
         return CurrentConditions(
@@ -134,13 +133,12 @@ class AtmosClient:
         # Endpoint: history/hours:lookup
         url = f"{self.base_url}/history/hours:lookup"
         
-        # Cap hours at 24 as per API limit
         fetch_hours = min(hours, 24)
         
         params = {
             "location.latitude": lat,
             "location.longitude": lng,
-            "hours": fetch_hours, # Param name per search result
+            "hours": fetch_hours, 
             "key": self.api_key,
             "unitsSystem": "IMPERIAL",
             "pageSize": fetch_hours
@@ -153,15 +151,16 @@ class AtmosClient:
             
         data = resp.json()
         
+        # DEBUG
+        console.print("[yellow]DEBUG History Response:[/yellow]")
+        console.print(data)
+        
         history_items = []
         # Response key: historyHours (per search result)
         entries = data.get("historyHours", [])
         
         for entry in entries:
-            # Entry has 'startTime' (the hour) and condition data
-            # Structure is likely flat like 'currentConditions' but inside the entry.
-            
-            ts_str = entry.get("startTime") or entry.get("pointInTime") # Guessing 'pointInTime' as alt
+            ts_str = entry.get("startTime") or entry.get("pointInTime") 
             if not ts_str:
                 continue
             
