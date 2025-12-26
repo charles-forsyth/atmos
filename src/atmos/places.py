@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 from typing import Dict, Optional
 
+
 class PlacesManager:
     """Manages the ~/.config/atmos/places.json registry."""
-    
+
     def __init__(self):
         self.config_dir = Path.home() / ".config/atmos"
         self.places_file = self.config_dir / "places.json"
@@ -52,6 +53,7 @@ class PlacesManager:
         """Gets an address by name (case-insensitive key search could be added)."""
         places = self._load_places()
         return places.get(name)
+
 
 # Global instance
 places_manager = PlacesManager()
