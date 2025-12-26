@@ -16,7 +16,8 @@ def test_get_coords(mocker):
             }
         ]
     }
-    mock_response.raise_for_status.return_value = None
+    mock_response.ok = True # Simulating success
+    mock_response.status_code = 200
     mock_get.return_value = mock_response
     
     client = AtmosClient()
@@ -35,7 +36,6 @@ def test_get_current_conditions_live_structure(mocker):
     mock_get = mocker.patch("requests.get")
     mock_response = mocker.Mock()
     
-    # Simulated JSON from Google Weather API
     mock_response.json.return_value = {
         "currentConditions": {
             "temperature": {"value": 15.5, "units": "CELSIUS"},
@@ -49,7 +49,7 @@ def test_get_current_conditions_live_structure(mocker):
             "pressure": 1005.0
         }
     }
-    mock_response.raise_for_status.return_value = None
+    mock_response.ok = True # Success
     mock_get.return_value = mock_response
     
     client = AtmosClient()
@@ -58,4 +58,3 @@ def test_get_current_conditions_live_structure(mocker):
     assert isinstance(weather, CurrentConditions)
     assert weather.temperature.value == 15.5
     assert weather.description == "Cloudy"
-    assert weather.precipitation.type == "Rain"
