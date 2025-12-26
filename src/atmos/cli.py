@@ -285,7 +285,7 @@ def graph(location_arg, location, hours, metric):
             cfg["colors"] = [asciichartpy.blue]
         
         chart = asciichartpy.plot(series, cfg)
-        console.print(chart)
+        console.print(Text.from_ansi(chart))
         
         # Print simple legend/timeline
         # (Asciichartpy doesn't support X-axis labels easily, so we can just print a start/end note)
