@@ -55,55 +55,69 @@ class AtmosClient:
 
         data = resp.json()
         
-        # DEBUG: Print raw response to understand the structure
-        console.print("[yellow]DEBUG: Raw API Response:[/yellow]")
-        console.print(data) 
+        # The API returns a direct object structure (based on debug output)
+        # We parse carefully.
         
-        cond = data.get("currentConditions", data)
-        
-        temp_data = cond.get("temperature", {})
+        # 1. Temperature
+        temp_obj = data.get("temperature", {})
         temp = Temperature(
-            value=temp_data.get("value", 0.0),
-            units=temp_data.get("units", "CELSIUS")
+            value=temp_obj.get("degrees", 0.0),
+            units=temp_obj.get("unit", "CELSIUS")
         )
         
-        feels_like_data = cond.get("feelsLikeTemperature", {})
+        feels_like_obj = data.get("feelsLikeTemperature", {})
         feels_like = Temperature(
-            value=feels_like_data.get("value", 0.0),
-            units=feels_like_data.get("units", "CELSIUS")
+            value=feels_like_obj.get("degrees", 0.0),
+            units=feels_like_obj.get("unit", "CELSIUS")
         )
 
-        # Robust Wind Parsing
-        wind_data = cond.get("wind", {})
-        if wind_data is None:
-            wind_data = {}
-            
+        # 2. Wind
+        wind_obj = data.get("wind", {})
+        speed_obj = wind_obj.get("speed", {})
+        gust_obj = wind_obj.get("gust", {})
+        direction_obj = wind_obj.get("direction", {})
+        
         wind = Wind(
-            speed=wind_data.get("speed", 0.0),
-            direction=wind_data.get("direction", "N"),
-            gust=wind_data.get("gust", 0.0)
+            speed=speed_obj.get("value", 0.0),
+            direction=direction_obj.get("cardinal", "N"),
+            gust=gust_obj.get("value", 0.0)
         )
 
-        precip_data = cond.get("precipitation", {})
-        if precip_data is None:
-            precip_data = {}
-
+        # 3. Precipitation
+        precip_obj = data.get("precipitation", {})
+        prob_obj = precip_obj.get("probability", {})
+        # Rate might be inside 'qpf' or 'snowQpf'
+        # For now, let's look for qpf.quantity
+        qpf_obj = precip_obj.get("qpf", {})
+        
         precip = Precipitation(
-            type=precip_data.get("type", "None"),
-            rate=precip_data.get("rate", 0.0),
-            probability=precip_data.get("probability", 0.0)
+            type=prob_obj.get("type", "None"),
+            rate=qpf_obj.get("quantity", 0.0),
+            probability=prob_obj.get("percent", 0.0)
         )
+        
+        # 4. Others
+        # conditionDescription is inside weatherCondition.description.text (or type)
+        cond_obj = data.get("weatherCondition", {})
+        desc_obj = cond_obj.get("description", {})
+        description = desc_obj.get("text", cond_obj.get("type", "Unknown"))
+        
+        # Pressure
+        pressure_obj = data.get("airPressure", {})
+
+        # Visibility
+        vis_obj = data.get("visibility", {})
 
         return CurrentConditions(
             temperature=temp,
             feels_like=feels_like,
-            humidity=cond.get("humidity", 0.0),
-            description=cond.get("conditionDescription", "Unknown"),
+            humidity=data.get("relativeHumidity", 0.0),
+            description=description,
             wind=wind,
             precipitation=precip,
-            uv_index=cond.get("uvIndex", 0),
-            visibility=cond.get("visibility", 10000.0),
-            pressure=cond.get("pressure", 1013.25)
+            uv_index=data.get("uvIndex", 0),
+            visibility=vis_obj.get("distance", 10.0) * 1000 if vis_obj.get("unit") == "KILOMETERS" else vis_obj.get("distance", 10000.0),
+            pressure=pressure_obj.get("meanSeaLevelMillibars", 1013.25)
         )
 
 # Global client instance
