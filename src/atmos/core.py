@@ -1,6 +1,6 @@
 import requests
 from typing import Tuple, List, Dict, Any
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from atmos.config import settings
 from atmos.models import (
     CurrentConditions, Temperature, Wind, Precipitation, 
@@ -205,7 +205,8 @@ class AtmosClient:
         for entry in entries:
             interval = entry.get("interval", {})
             ts_str = interval.get("startTime")
-            if not ts_str: continue
+            if not ts_str:
+                continue
             
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             temp, feels_like, wind, precip, desc, humidity, pressure = self._parse_condition(entry)
@@ -236,10 +237,6 @@ class AtmosClient:
             
         data = resp.json()
         
-        # DEBUG
-        console.print("[yellow]DEBUG Forecast Response:[/yellow]")
-        console.print(data)
-        
         entries = data.get("forecastDays", [])
         
         items = []
@@ -251,19 +248,26 @@ class AtmosClient:
             
             date = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             
-            # Temps are likely highTemperature / lowTemperature objects
-            low_obj = entry.get("lowTemperature", {})
-            high_obj = entry.get("highTemperature", {})
+            # Temps: maxTemperature / minTemperature
+            low_obj = entry.get("minTemperature", {})
+            high_obj = entry.get("maxTemperature", {})
             
             low_temp = Temperature(value=low_obj.get("degrees", 0.0), units=low_obj.get("unit", "CELSIUS"))
             high_temp = Temperature(value=high_obj.get("degrees", 0.0), units=high_obj.get("unit", "CELSIUS"))
             
-            cond_obj = entry.get("weatherCondition", {})
+            # Condition: Use daytimeForecast or nighttimeForecast
+            target_forecast = entry.get("daytimeForecast") or entry.get("nighttimeForecast") or {}
+            
+            cond_obj = target_forecast.get("weatherCondition", {})
             desc_obj = cond_obj.get("description", {})
             desc = desc_obj.get("text", cond_obj.get("type", "Unknown"))
             
-            precip_obj = entry.get("precipitation", {})
-            prob = precip_obj.get("maxProbability", {}).get("percent", 0.0) 
+            # Precip: Max of day/night probability?
+            # Or take from daytime?
+            # Let's check both
+            day_precip = target_forecast.get("precipitation", {}) # Default to day
+            
+            prob = day_precip.get("probability", {}).get("percent", 0.0)
             
             # Sunrise/Sunset
             sun_obj = entry.get("sunEvents", {})
