@@ -25,10 +25,12 @@ def test_get_forecast(mocker):
         "forecastDays": [
             {
                 "interval": {"startTime": "2023-10-06T00:00:00Z"},
-                "highTemperature": {"degrees": 60.0, "unit": "FAHRENHEIT"},
-                "lowTemperature": {"degrees": 40.0, "unit": "FAHRENHEIT"},
-                "weatherCondition": {"description": {"text": "Sunny"}},
-                "precipitation": {"maxProbability": {"percent": 10}},
+                "maxTemperature": {"degrees": 60.0, "unit": "FAHRENHEIT"},
+                "minTemperature": {"degrees": 40.0, "unit": "FAHRENHEIT"},
+                "daytimeForecast": {
+                    "weatherCondition": {"description": {"text": "Sunny"}},
+                    "precipitation": {"probability": {"percent": 10}}
+                },
                 "sunEvents": {"sunriseTime": "2023-10-06T06:00:00Z", "sunsetTime": "2023-10-06T18:00:00Z"}
             }
         ]
