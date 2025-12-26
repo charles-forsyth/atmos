@@ -12,8 +12,6 @@ from atmos.places import places_manager
 console = Console()
 
 def format_dt(dt: datetime) -> str:
-    """Formats a UTC datetime to local time string (HH:MM or YYYY-MM-DD)."""
-    # Convert to local time
     local_dt = dt.astimezone() 
     return local_dt.strftime("%H:%M")
 
@@ -22,9 +20,6 @@ def format_date(dt: datetime) -> str:
     return local_dt.strftime("%a %b %d")
 
 class DefaultGroup(click.Group):
-    """
-    Custom Click Group that intercepts arguments.
-    """
     def parse_args(self, ctx, args):
         if not args:
             return super().parse_args(ctx, args)
@@ -155,9 +150,8 @@ def forecast(location_arg, location, days, hourly):
     
     try:
         if hourly:
-            # Hourly Forecast
             console.print(f"[cyan]Fetching hourly forecast for {final_location}...[/cyan]")
-            items = client.get_hourly_forecast(final_location, hours=days*24) # Rough conversion
+            items = client.get_hourly_forecast(final_location, hours=days*24) 
             
             table = Table(title=f"Hourly Forecast: {final_location}", box=box.SIMPLE_HEAD)
             table.add_column("Time", style="dim")
@@ -177,7 +171,6 @@ def forecast(location_arg, location, days, hourly):
             console.print(table)
             
         else:
-            # Daily Forecast
             console.print(f"[cyan]Fetching daily forecast for {final_location} ({days} days)...[/cyan]")
             items = client.get_daily_forecast(final_location, days=days)
             
@@ -203,6 +196,39 @@ def forecast(location_arg, location, days, hourly):
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
 
+@main.command()
+@click.argument("location_arg", required=False)
+@click.option("-L", "--location", help="City or location name")
+def alert(location_arg, location):
+    """Check for severe weather alerts."""
+    target = location_arg or location
+    if not target:
+        console.print("[bold red]Error:[/bold red] Missing location.")
+        return
+
+    saved_address = places_manager.get(target)
+    final_location = saved_address if saved_address else target
+    
+    try:
+        console.print(f"[cyan]Checking for active alerts in {final_location}...[/cyan]")
+        alerts = client.get_public_alerts(final_location)
+        
+        if not alerts:
+            console.print("[bold green]✓ No active weather alerts.[/bold green]")
+            return
+            
+        for a in alerts:
+            style = "bold red" if a.severity in ["SEVERE", "EXTREME"] else "bold yellow"
+            panel = Panel(
+                f"[bold]{a.headline}[/bold]\n\n{a.description}",
+                title=f"[{style}]{a.type} ({a.severity})[/{style}]",
+                subtitle=f"Source: {a.source}",
+                border_style="red"
+            )
+            console.print(panel)
+
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
 
 # --- Places Management ---
 
