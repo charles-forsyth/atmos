@@ -30,7 +30,7 @@ class CurrentConditions(BaseModel):
     pressure: Optional[float] = 1013.25
 
 class HourlyHistoryItem(BaseModel):
-    """Represents a single hour of historical weather data."""
+    """Represents a single hour of historical or forecast weather data."""
     timestamp: datetime
     temperature: Temperature
     feels_like: Temperature
@@ -39,3 +39,16 @@ class HourlyHistoryItem(BaseModel):
     wind: Wind
     precipitation: Precipitation
     pressure: Optional[float] = 0.0
+
+# Alias for clarity
+HourlyForecastItem = HourlyHistoryItem
+
+class DailyForecastItem(BaseModel):
+    """Represents a single day of forecast."""
+    date: datetime
+    low_temp: Temperature
+    high_temp: Temperature
+    description: Optional[str] = "Unknown"
+    precipitation_probability: Optional[float] = 0.0
+    sunrise: Optional[datetime] = None
+    sunset: Optional[datetime] = None

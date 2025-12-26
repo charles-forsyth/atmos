@@ -4,38 +4,40 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich import box
+from datetime import datetime
 
 from atmos.core import client
 from atmos.places import places_manager
 
 console = Console()
 
+def format_dt(dt: datetime) -> str:
+    """Formats a UTC datetime to local time string (HH:MM or YYYY-MM-DD)."""
+    # Convert to local time
+    local_dt = dt.astimezone() 
+    return local_dt.strftime("%H:%M")
+
+def format_date(dt: datetime) -> str:
+    local_dt = dt.astimezone()
+    return local_dt.strftime("%a %b %d")
 
 class DefaultGroup(click.Group):
     """
     Custom Click Group that intercepts arguments.
-    If the first argument is not a known command, it assumes it's a location
-    and invokes the 'current' command with that location.
     """
-
     def parse_args(self, ctx, args):
         if not args:
             return super().parse_args(ctx, args)
-
-        # If the first argument is a known command or help flag, proceed normally
         cmd_name = args[0]
         if cmd_name in self.commands or cmd_name in ctx.help_option_names:
             return super().parse_args(ctx, args)
-
         return super().parse_args(ctx, ["current"] + args)
 
 
 @click.group(cls=DefaultGroup, context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(package_name="atmos")
 def main():
-    """
-    Atmos: A professional CLI weather tool.
-    """
+    """Atmos: A professional CLI weather tool."""
     pass
 
 
@@ -95,9 +97,7 @@ def current(location_arg, location):
 @click.option("-L", "--location", help="City or location name")
 @click.option("--hours", default=24, help="Number of hours to look back (default: 24)")
 def history(location_arg, location, hours):
-    """
-    Get historical weather data.
-    """
+    """Get historical weather data."""
     target = location_arg or location
     if not target:
         console.print("[bold red]Error:[/bold red] Missing location.")
@@ -122,10 +122,7 @@ def history(location_arg, location, hours):
         table.add_column("Precip", style="blue")
         
         for item in history_items:
-            # Format time: HH:MM
-            time_str = item.timestamp.strftime("%H:%M")
-            # If date changes? maybe show day too? For 24h, mostly ok.
-            
+            time_str = format_dt(item.timestamp)
             unit_label = "°F" if "FAHRENHEIT" in (item.temperature.units or "").upper() else "°C"
             temp_str = f"{item.temperature.value}{unit_label}"
             
@@ -137,6 +134,71 @@ def history(location_arg, location, hours):
             table.add_row(time_str, temp_str, item.description, wind_str, precip_str)
             
         console.print(table)
+
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+
+@main.command()
+@click.argument("location_arg", required=False)
+@click.option("-L", "--location", help="City or location name")
+@click.option("--days", default=5, help="Number of days (default: 5)")
+@click.option("--hourly", is_flag=True, help="Show hourly forecast instead of daily")
+def forecast(location_arg, location, days, hourly):
+    """Get weather forecast."""
+    target = location_arg or location
+    if not target:
+        console.print("[bold red]Error:[/bold red] Missing location.")
+        return
+
+    saved_address = places_manager.get(target)
+    final_location = saved_address if saved_address else target
+    
+    try:
+        if hourly:
+            # Hourly Forecast
+            console.print(f"[cyan]Fetching hourly forecast for {final_location}...[/cyan]")
+            items = client.get_hourly_forecast(final_location, hours=days*24) # Rough conversion
+            
+            table = Table(title=f"Hourly Forecast: {final_location}", box=box.SIMPLE_HEAD)
+            table.add_column("Time", style="dim")
+            table.add_column("Temp", style="bold cyan")
+            table.add_column("Condition", style="white")
+            table.add_column("Wind", style="green")
+            table.add_column("Precip", style="blue")
+            
+            for item in items:
+                time_str = format_dt(item.timestamp)
+                unit_label = "°F" if "FAHRENHEIT" in (item.temperature.units or "").upper() else "°C"
+                temp_str = f"{item.temperature.value}{unit_label}"
+                wind_str = f"{item.wind.speed} {item.wind.direction}"
+                precip_str = f"{item.precipitation.probability}%"
+                
+                table.add_row(time_str, temp_str, item.description, wind_str, precip_str)
+            console.print(table)
+            
+        else:
+            # Daily Forecast
+            console.print(f"[cyan]Fetching daily forecast for {final_location} ({days} days)...[/cyan]")
+            items = client.get_daily_forecast(final_location, days=days)
+            
+            table = Table(title=f"Daily Forecast: {final_location}", box=box.SIMPLE_HEAD)
+            table.add_column("Date", style="dim")
+            table.add_column("High/Low", style="bold cyan")
+            table.add_column("Condition", style="white")
+            table.add_column("Precip", style="blue")
+            table.add_column("Sun", style="yellow")
+            
+            for item in items:
+                date_str = format_date(item.date)
+                unit_label = "°F" if "FAHRENHEIT" in (item.high_temp.units or "").upper() else "°C"
+                temp_str = f"{item.high_temp.value}{unit_label} / {item.low_temp.value}{unit_label}"
+                
+                sun_str = ""
+                if item.sunrise and item.sunset:
+                    sun_str = f"☀ {format_dt(item.sunrise)} ↓ {format_dt(item.sunset)}"
+                
+                table.add_row(date_str, temp_str, item.description, f"{item.precipitation_probability}%", sun_str)
+            console.print(table)
 
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")

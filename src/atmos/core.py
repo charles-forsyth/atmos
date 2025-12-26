@@ -2,7 +2,10 @@ import requests
 from typing import Tuple, List, Dict, Any
 from datetime import datetime
 from atmos.config import settings
-from atmos.models import CurrentConditions, Temperature, Wind, Precipitation, HourlyHistoryItem
+from atmos.models import (
+    CurrentConditions, Temperature, Wind, Precipitation, 
+    HourlyHistoryItem, HourlyForecastItem, DailyForecastItem
+)
 from rich.console import Console
 
 console = Console()
@@ -130,7 +133,6 @@ class AtmosClient:
         """Fetches hourly history for the last N hours."""
         lat, lng = self.get_coords(location)
         
-        # Endpoint: history/hours:lookup
         url = f"{self.base_url}/history/hours:lookup"
         
         fetch_hours = min(hours, 24)
@@ -152,11 +154,9 @@ class AtmosClient:
         data = resp.json()
         
         history_items = []
-        # Response key: historyHours (per search result)
         entries = data.get("historyHours", [])
         
         for entry in entries:
-            # Timestamp is in 'interval' -> 'startTime'
             interval = entry.get("interval", {})
             ts_str = interval.get("startTime")
             
@@ -164,7 +164,6 @@ class AtmosClient:
                 continue
             
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-            
             temp, feels_like, wind, precip, desc, humidity, pressure = self._parse_condition(entry)
             
             item = HourlyHistoryItem(
@@ -180,6 +179,108 @@ class AtmosClient:
             history_items.append(item)
             
         return history_items
+
+    def get_hourly_forecast(self, location: str, hours: int = 24) -> List[HourlyForecastItem]:
+        """Fetches hourly forecast."""
+        lat, lng = self.get_coords(location)
+        url = f"{self.base_url}/forecast/hours:lookup"
+        
+        params = {
+            "location.latitude": lat,
+            "location.longitude": lng,
+            "hours": min(hours, 240), # API limit 240
+            "key": self.api_key,
+            "unitsSystem": "IMPERIAL",
+            "pageSize": min(hours, 24) 
+        }
+        
+        resp = requests.get(url, params=params)
+        if not resp.ok:
+            raise ValueError(f"Forecast API Error ({resp.status_code}): {resp.text}")
+            
+        data = resp.json()
+        entries = data.get("forecastHours", []) # Guessing key
+        
+        items = []
+        for entry in entries:
+            interval = entry.get("interval", {})
+            ts_str = interval.get("startTime")
+            if not ts_str:
+                continue
+            
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            temp, feels_like, wind, precip, desc, humidity, pressure = self._parse_condition(entry)
+            
+            items.append(HourlyForecastItem(
+                timestamp=ts, temperature=temp, feels_like=feels_like,
+                humidity=humidity, description=desc, wind=wind,
+                precipitation=precip, pressure=pressure
+            ))
+        return items
+
+    def get_daily_forecast(self, location: str, days: int = 5) -> List[DailyForecastItem]:
+        """Fetches daily forecast."""
+        lat, lng = self.get_coords(location)
+        url = f"{self.base_url}/forecast/days:lookup"
+        
+        params = {
+            "location.latitude": lat,
+            "location.longitude": lng,
+            "days": min(days, 10),
+            "key": self.api_key,
+            "unitsSystem": "IMPERIAL"
+        }
+        
+        resp = requests.get(url, params=params)
+        if not resp.ok:
+            raise ValueError(f"Daily Forecast API Error ({resp.status_code}): {resp.text}")
+            
+        data = resp.json()
+        entries = data.get("forecastDays", [])
+        
+        items = []
+        for entry in entries:
+            # Parse Date from interval? or 'displayDateTime'?
+            interval = entry.get("interval", {})
+            ts_str = interval.get("startTime")
+            if not ts_str:
+                continue
+            
+            date = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            
+            # Temps are likely highTemperature / lowTemperature objects
+            low_obj = entry.get("lowTemperature", {})
+            high_obj = entry.get("highTemperature", {})
+            
+            low_temp = Temperature(value=low_obj.get("degrees", 0.0), units=low_obj.get("unit", "CELSIUS"))
+            high_temp = Temperature(value=high_obj.get("degrees", 0.0), units=high_obj.get("unit", "CELSIUS"))
+            
+            cond_obj = entry.get("weatherCondition", {})
+            desc_obj = cond_obj.get("description", {})
+            desc = desc_obj.get("text", cond_obj.get("type", "Unknown"))
+            
+            precip_obj = entry.get("precipitation", {})
+            prob = precip_obj.get("maxProbability", {}).get("percent", 0.0) # Daily usually has maxProb
+            
+            # Sunrise/Sunset
+            sun_obj = entry.get("sunEvents", {})
+            sunrise_str = sun_obj.get("sunriseTime")
+            sunset_str = sun_obj.get("sunsetTime")
+            
+            sunrise = datetime.fromisoformat(sunrise_str.replace("Z", "+00:00")) if sunrise_str else None
+            sunset = datetime.fromisoformat(sunset_str.replace("Z", "+00:00")) if sunset_str else None
+            
+            items.append(DailyForecastItem(
+                date=date,
+                low_temp=low_temp,
+                high_temp=high_temp,
+                description=desc,
+                precipitation_probability=prob,
+                sunrise=sunrise,
+                sunset=sunset
+            ))
+            
+        return items
 
 # Global client instance
 client = AtmosClient()
