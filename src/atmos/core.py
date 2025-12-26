@@ -134,7 +134,6 @@ class AtmosClient:
         lat, lng = self.get_coords(location)
         
         url = f"{self.base_url}/history/hours:lookup"
-        
         fetch_hours = min(hours, 24)
         
         params = {
@@ -257,12 +256,24 @@ class AtmosClient:
             day_precip = target_forecast.get("precipitation", {})
             prob = day_precip.get("probability", {}).get("percent", 0.0)
             
+            cloud_cover = target_forecast.get("cloudCover", 0)
+            
             sun_obj = entry.get("sunEvents", {})
             sunrise_str = sun_obj.get("sunriseTime")
             sunset_str = sun_obj.get("sunsetTime")
             
             sunrise = datetime.fromisoformat(sunrise_str.replace("Z", "+00:00")) if sunrise_str else None
             sunset = datetime.fromisoformat(sunset_str.replace("Z", "+00:00")) if sunset_str else None
+            
+            # Moon Parsing
+            moon_obj = entry.get("moonEvents", {})
+            moon_phase = moon_obj.get("moonPhase", "Unknown")
+            
+            moonrise_list = moon_obj.get("moonriseTimes", [])
+            moonrise = datetime.fromisoformat(moonrise_list[0].replace("Z", "+00:00")) if moonrise_list else None
+            
+            moonset_list = moon_obj.get("moonsetTimes", [])
+            moonset = datetime.fromisoformat(moonset_list[0].replace("Z", "+00:00")) if moonset_list else None
             
             items.append(DailyForecastItem(
                 date=date,
@@ -271,7 +282,11 @@ class AtmosClient:
                 description=desc,
                 precipitation_probability=prob,
                 sunrise=sunrise,
-                sunset=sunset
+                sunset=sunset,
+                moon_phase=moon_phase,
+                moonrise=moonrise,
+                moonset=moonset,
+                cloud_cover=cloud_cover
             ))
             
         return items
@@ -292,9 +307,6 @@ class AtmosClient:
             raise ValueError(f"Alerts API Error ({resp.status_code}): {resp.text}")
             
         data = resp.json()
-        
-        # Key is likely 'alerts' or 'weatherAlerts'
-        # I'll check 'alerts' first, then debug if empty/wrong.
         alerts_data = data.get("alerts", [])
         
         items = []

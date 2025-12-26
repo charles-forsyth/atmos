@@ -30,7 +30,6 @@ class CurrentConditions(BaseModel):
     pressure: Optional[float] = 1013.25
 
 class HourlyHistoryItem(BaseModel):
-    """Represents a single hour of historical or forecast weather data."""
     timestamp: datetime
     temperature: Temperature
     feels_like: Temperature
@@ -43,7 +42,6 @@ class HourlyHistoryItem(BaseModel):
 HourlyForecastItem = HourlyHistoryItem
 
 class DailyForecastItem(BaseModel):
-    """Represents a single day of forecast."""
     date: datetime
     low_temp: Temperature
     high_temp: Temperature
@@ -51,11 +49,15 @@ class DailyForecastItem(BaseModel):
     precipitation_probability: Optional[float] = 0.0
     sunrise: Optional[datetime] = None
     sunset: Optional[datetime] = None
+    moon_phase: Optional[str] = "Unknown"
+    moonrise: Optional[datetime] = None
+    moonset: Optional[datetime] = None
+    cloud_cover: Optional[int] = 0 # Percentage
 
 class WeatherAlert(BaseModel):
     headline: str
     description: str
-    type: str # e.g. "Tornado Warning"
+    type: str 
     severity: str
     urgency: str
     certainty: str
