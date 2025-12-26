@@ -293,11 +293,8 @@ class AtmosClient:
             
         data = resp.json()
         
-        # DEBUG
-        console.print("[yellow]DEBUG Alerts Response:[/yellow]")
-        console.print(data)
-        
         # Key is likely 'alerts' or 'weatherAlerts'
+        # I'll check 'alerts' first, then debug if empty/wrong.
         alerts_data = data.get("alerts", [])
         
         items = []
