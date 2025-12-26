@@ -18,7 +18,8 @@ class SuitabilityEvaluator:
         "photography": ["photography", "photo"],
         "tennis": ["tennis"],
         "camping": ["camping", "camp"],
-        "fishing": ["fishing", "fish"]
+        "fishing": ["fishing", "fish"],
+        "kayaking": ["kayaking", "kayak", "canoe", "paddling"]
     }
 
     @staticmethod
@@ -61,7 +62,6 @@ class SuitabilityEvaluator:
             score -= 30
             reasons.append(f"Chance of rain ({precip}%)")
         elif precip < 10:
-            # reasons.append("Dry") # Optional
             pass
             
         # --- Specific Rules ---
@@ -268,6 +268,27 @@ class SuitabilityEvaluator:
             if precip > 60:
                 score -= 30
                 reasons.append("Heavy rain")
+
+        elif act == "kayaking":
+            score = 100
+            if wind > 20:
+                score -= 80
+                reasons.append(f"Dangerous water ({wind} mph)")
+            elif wind > 10:
+                score -= 30
+                reasons.append(f"Choppy ({wind} mph)")
+            else:
+                reasons.append("Calm water")
+                
+            if high < 50:
+                score -= 40
+                reasons.append(f"Cold water risk ({high}°F)")
+            elif high > 70:
+                reasons.append("Warm air")
+                
+            if precip > 40:
+                score -= 30
+                reasons.append("Rain")
 
         # Cap score
         score = max(0, min(100, score))

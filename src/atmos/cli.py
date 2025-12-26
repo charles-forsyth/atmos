@@ -476,7 +476,7 @@ def find(location_arg, location, activity, days):
     \b
     ACTIVITIES:
       hiking, bbq, beach, stargazing, running, cycling, golf, 
-      sailing, skiing, drone, photography, tennis, camping, fishing
+      sailing, skiing, drone, photography, tennis, camping, fishing, kayaking
 
     \b
     EXAMPLES:
