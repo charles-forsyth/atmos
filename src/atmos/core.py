@@ -55,6 +55,10 @@ class AtmosClient:
 
         data = resp.json()
         
+        # DEBUG: Print raw response to understand the structure
+        console.print("[yellow]DEBUG: Raw API Response:[/yellow]")
+        console.print(data) 
+        
         cond = data.get("currentConditions", data)
         
         temp_data = cond.get("temperature", {})
