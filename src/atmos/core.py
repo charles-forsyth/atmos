@@ -243,6 +243,7 @@ class AtmosClient:
             "location.latitude": lat,
             "location.longitude": lng,
             "days": min(days, 10),
+            "pageSize": min(days, 10), # Added pageSize
             "key": self.api_key,
             "unitsSystem": "IMPERIAL"
         }
