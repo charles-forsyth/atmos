@@ -19,7 +19,6 @@ def format_dt(dt: datetime) -> str:
     return local_dt.strftime("%H:%M")
 
 def format_time_ampm(dt: datetime) -> str:
-    """Formats time as 07:18 AM."""
     local_dt = dt.astimezone()
     return local_dt.strftime("%I:%M %p")
 
@@ -40,7 +39,20 @@ class DefaultGroup(click.Group):
 @click.group(cls=DefaultGroup, context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(package_name="atmos")
 def main():
-    """Atmos: A professional CLI weather tool."""
+    """
+    Atmos: A professional CLI weather tool.
+
+    Powered by Google Maps Platform Weather API.
+
+    
+    EXAMPLES:
+      atmos "New York"              # Current weather
+      atmos forecast -L "London"    # 5-day forecast
+      atmos graph --hours 24        # Temperature trend graph
+      atmos stars                   # Astronomy & Stargazing info
+      atmos find --activity hiking  # Find best days to hike
+      atmos alert                   # Check for severe weather alerts
+    """
     pass
 
 
@@ -48,7 +60,16 @@ def main():
 @click.argument("location_arg", required=False)
 @click.option("-L", "--location", help="City or location name")
 def current(location_arg, location):
-    """Get current weather conditions."""
+    """
+    Get current weather conditions.
+
+    The default command. You can omit 'current' and just type the location.
+
+    
+    EXAMPLES:
+      atmos "San Francisco"
+      atmos current -L "Tokyo"
+    """
     target = location_arg or location
     if not target:
         console.print("[bold red]Error:[/bold red] Missing location.")
@@ -100,7 +121,16 @@ def current(location_arg, location):
 @click.option("-L", "--location", help="City or location name")
 @click.option("--hours", default=24, help="Number of hours to look back (default: 24)")
 def history(location_arg, location, hours):
-    """Get historical weather data."""
+    """
+    Get historical weather data.
+
+    Shows hourly data for the past N hours (default 24).
+
+    
+    EXAMPLES:
+      atmos history -L "Seattle"
+      atmos history --hours 12
+    """
     target = location_arg or location
     if not target:
         console.print("[bold red]Error:[/bold red] Missing location.")
@@ -147,7 +177,17 @@ def history(location_arg, location, hours):
 @click.option("--days", default=5, help="Number of days (default: 5)")
 @click.option("--hourly", is_flag=True, help="Show hourly forecast instead of daily")
 def forecast(location_arg, location, days, hourly):
-    """Get weather forecast."""
+    """
+    Get weather forecast.
+
+    Shows daily summary by default, or hourly details with --hourly.
+
+    
+    EXAMPLES:
+      atmos forecast -L "Paris"
+      atmos forecast --days 10
+      atmos forecast --hourly
+    """
     target = location_arg or location
     if not target:
         console.print("[bold red]Error:[/bold red] Missing location.")
@@ -208,7 +248,16 @@ def forecast(location_arg, location, days, hourly):
 @click.argument("location_arg", required=False)
 @click.option("-L", "--location", help="City or location name")
 def alert(location_arg, location):
-    """Check for severe weather alerts."""
+    """
+    Check for severe weather alerts.
+
+    Displays active warnings, watches, and advisories.
+
+    
+    EXAMPLES:
+      atmos alert
+      atmos alert -L "Miami, FL"
+    """
     target = location_arg or location
     if not target:
         console.print("[bold red]Error:[/bold red] Missing location.")
@@ -244,7 +293,16 @@ def alert(location_arg, location):
 @click.option("--hours", default=24, help="Number of hours to graph (default: 24)")
 @click.option("--metric", default="temp", type=click.Choice(['temp', 'precip', 'wind']), help="Metric to graph")
 def graph(location_arg, location, hours, metric):
-    """Visualize weather trends (ASCII Graph)."""
+    """
+    Visualize weather trends (ASCII Graph).
+
+    Draws a chart directly in the terminal.
+
+    
+    EXAMPLES:
+      atmos graph
+      atmos graph --metric precip --hours 48
+    """
     target = location_arg or location
     if not target:
         console.print("[bold red]Error:[/bold red] Missing location.")
@@ -301,7 +359,16 @@ def graph(location_arg, location, hours, metric):
 @click.argument("location_arg", required=False)
 @click.option("-L", "--location", help="City or location name")
 def stars(location_arg, location):
-    """Astronomy info and stargazing forecast."""
+    """
+    Astronomy info and stargazing forecast.
+
+    Shows Sun/Moon rise/set times, phases, and a stargazing condition report.
+
+    
+    EXAMPLES:
+      atmos stars
+      atmos stars -L "Joshua Tree"
+    """
     target = location_arg or location
     if not target:
         console.print("[bold red]Error:[/bold red] Missing location.")
@@ -330,26 +397,22 @@ def stars(location_arg, location):
             minutes = remainder // 60
             daylight_str = f"{hours}h {minutes}m"
 
-        # UI Construction
-        # Use a single Table with no box for the internal layout
         grid = Table.grid(expand=True, padding=(0, 2))
         grid.add_column()
         grid.add_column()
         
-        # Left Side (Sun)
         sun_table = Table.grid(padding=(0, 1))
-        sun_table.add_column(style="bold yellow", width=12) # Label
-        sun_table.add_column() # Value
+        sun_table.add_column(style="bold yellow", width=12) 
+        sun_table.add_column()
         
         sun_table.add_row("☀ Sun", "")
         sun_table.add_row("Rise:", format_time_ampm(today.sunrise) if today.sunrise else "-")
         sun_table.add_row("Set:", format_time_ampm(today.sunset) if today.sunset else "-")
         sun_table.add_row("Daylight:", daylight_str)
         
-        # Right Side (Moon)
         moon_table = Table.grid(padding=(0, 1))
-        moon_table.add_column(style="bold white", width=12) # Label
-        moon_table.add_column() # Value
+        moon_table.add_column(style="bold white", width=12)
+        moon_table.add_column()
         
         moon_table.add_row("☾ Moon", "")
         moon_table.add_row("Phase:", today.moon_phase.replace("_", " ").title())
@@ -358,11 +421,9 @@ def stars(location_arg, location):
         
         grid.add_row(sun_table, moon_table)
         
-        # Divider row (empty)
         grid.add_row("", "")
         grid.add_row("", "")
         
-        # Conditions (Spanning)
         cond_table = Table.grid(padding=(0, 1))
         cond_table.add_column(style="bold blue", width=12)
         cond_table.add_column()
@@ -372,7 +433,6 @@ def stars(location_arg, location):
         cond_table.add_row("Precip:", f"{today.precipitation_probability}%")
         cond_table.add_row("Stargazing:", f"[italic]{condition_report}[/italic]")
         
-        # Final Assembly
         final_layout = Table.grid(expand=True)
         final_layout.add_row(grid)
         final_layout.add_row(cond_table)
@@ -394,7 +454,20 @@ def stars(location_arg, location):
 @click.option("--activity", required=True, help="Activity (hiking, bbq, beach, stargazing)")
 @click.option("--days", default=10, help="Search range (default: 10 days)")
 def find(location_arg, location, activity, days):
-    """Find the best day for an activity."""
+    """
+    Find the best day for an activity.
+
+    Analyzes forecast conditions against activity rules.
+
+    
+    ACTIVITIES:
+      hiking, bbq, beach, stargazing, running
+
+    
+    EXAMPLES:
+      atmos find --activity hiking
+      atmos find -L "San Diego" --activity beach --days 5
+    """
     target = location_arg or location
     if not target:
         console.print("[bold red]Error:[/bold red] Missing location.")
