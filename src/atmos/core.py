@@ -1,6 +1,6 @@
 import requests
 from typing import Tuple, List, Dict, Any
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from atmos.config import settings
 from atmos.models import CurrentConditions, Temperature, Wind, Precipitation, HourlyHistoryItem
 from rich.console import Console
@@ -114,8 +114,6 @@ class AtmosClient:
         vis_obj = cond.get("visibility", {})
         # Use raw val, let UI handle unit display if needed.
         vis_val = vis_obj.get("distance", 10.0)
-        # Note: if units are KILOMETERS, we might want to normalize? 
-        # For now, passing raw.
         
         return CurrentConditions(
             temperature=temp,
@@ -133,26 +131,19 @@ class AtmosClient:
         """Fetches hourly history for the last N hours."""
         lat, lng = self.get_coords(location)
         
-        # Time calculation (UTC)
-        end_time = datetime.now(timezone.utc)
-        start_time = end_time - timedelta(hours=hours)
+        # Endpoint: history/hours:lookup
+        url = f"{self.base_url}/history/hours:lookup"
         
-        # Format timestamps RFC3339
-        # 2023-10-05T12:00:00Z
-        
-        url = f"{self.base_url}/history:lookup"
-        
-        # Note: 'history:lookup' might be 'historyVersions/2/history:lookup' or similar.
-        # We try the standard pattern first.
+        # Cap hours at 24 as per API limit
+        fetch_hours = min(hours, 24)
         
         params = {
             "location.latitude": lat,
             "location.longitude": lng,
-            "startTime": start_time.isoformat(),
-            "endTime": end_time.isoformat(),
+            "hours": fetch_hours, # Param name per search result
             "key": self.api_key,
             "unitsSystem": "IMPERIAL",
-            "pageSize": 24 # or 'hours'
+            "pageSize": fetch_hours
         }
         
         resp = requests.get(url, params=params)
@@ -161,29 +152,20 @@ class AtmosClient:
             raise ValueError(f"History API Error ({resp.status_code}): {resp.text}")
             
         data = resp.json()
-        # console.print(data) # Debug if needed
         
         history_items = []
-        # API returns 'historyEntries' usually
-        entries = data.get("historyEntries", [])
+        # Response key: historyHours (per search result)
+        entries = data.get("historyHours", [])
         
         for entry in entries:
             # Entry has 'startTime' (the hour) and condition data
-            # Condition data is usually nested or flat? 
-            # Often 'condition' key.
-            # Let's check structure via trial/error (or debug print if fails)
+            # Structure is likely flat like 'currentConditions' but inside the entry.
             
-            # Assuming: entry = { "startTime": "...", "condition": { ... } }
-            # Or entry IS the condition with a time field.
-            
-            ts_str = entry.get("startTime") or entry.get("endTime") # timestamp
+            ts_str = entry.get("startTime") or entry.get("pointInTime") # Guessing 'pointInTime' as alt
             if not ts_str:
                 continue
             
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-            
-            # The condition data is likely mixed in or in a sub-object
-            # Docs say 'historyEntries[]' -> each has fields.
             
             temp, feels_like, wind, precip, desc, humidity, pressure = self._parse_condition(entry)
             

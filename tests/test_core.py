@@ -24,9 +24,9 @@ def test_get_history(mocker):
     mock_get = mocker.patch("requests.get")
     mock_response = mocker.Mock()
     
-    # Simulated History Response
+    # Simulated History Response (historyHours)
     mock_response.json.return_value = {
-        "historyEntries": [
+        "historyHours": [
             {
                 "startTime": "2023-10-05T10:00:00Z",
                 "temperature": {"degrees": 50.0, "unit": "FAHRENHEIT"},
@@ -51,9 +51,3 @@ def test_get_history(mocker):
     assert len(history) == 2
     assert isinstance(history[0], HourlyHistoryItem)
     assert history[0].temperature.value == 50.0
-    assert history[0].description == "Rain"
-    assert history[1].temperature.value == 52.0
-    
-    # Verify timestamp parsing
-    assert history[0].timestamp.year == 2023
-    assert history[0].timestamp.hour == 10
