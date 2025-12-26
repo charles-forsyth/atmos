@@ -4,8 +4,8 @@ from typing import Optional
 # --- Weather Data Models ---
 
 class Temperature(BaseModel):
-    value: float = 0.0
-    units: str = "CELSIUS"
+    value: Optional[float] = 0.0
+    units: Optional[str] = "CELSIUS"
 
 class Wind(BaseModel):
     speed: Optional[float] = 0.0
@@ -13,17 +13,17 @@ class Wind(BaseModel):
     gust: Optional[float] = 0.0
 
 class Precipitation(BaseModel):
-    type: str = "None"
-    rate: float = 0.0
-    probability: float = 0.0
+    type: Optional[str] = "None"
+    rate: Optional[float] = 0.0
+    probability: Optional[float] = 0.0
 
 class CurrentConditions(BaseModel):
     temperature: Temperature
     feels_like: Temperature
-    humidity: float = 0.0
-    description: str = "Unknown"
+    humidity: Optional[float] = 0.0
+    description: Optional[str] = "Unknown"
     wind: Wind
     precipitation: Precipitation
-    uv_index: int = 0
-    visibility: float = 10000.0
-    pressure: float = 1013.25
+    uv_index: Optional[int] = 0
+    visibility: Optional[float] = 10000.0
+    pressure: Optional[float] = 1013.25
