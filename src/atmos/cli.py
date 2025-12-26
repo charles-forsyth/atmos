@@ -166,7 +166,7 @@ def history(location_arg, location, hours):
             wind_str = f"{item.wind.speed} {item.wind.direction}"
             precip_str = f"{item.precipitation.probability}%"
             if item.precipitation.rate and item.precipitation.rate > 0:
-                 precip_str += f" ({item.precipitation.rate})"
+                 precip_str += f" ({item.precipitation.rate}\")"
             
             table.add_row(time_str, temp_str, item.description, wind_str, precip_str)
             
@@ -220,6 +220,8 @@ def forecast(location_arg, location, days, hourly):
                 temp_str = f"{item.temperature.value}{unit_label}"
                 wind_str = f"{item.wind.speed} {item.wind.direction}"
                 precip_str = f"{item.precipitation.probability}%"
+                if item.precipitation.rate and item.precipitation.rate > 0:
+                     precip_str += f" ({item.precipitation.rate}\")"
                 
                 table.add_row(time_str, temp_str, item.description, wind_str, precip_str)
             console.print(table)
@@ -244,7 +246,13 @@ def forecast(location_arg, location, days, hourly):
                 if item.sunrise and item.sunset:
                     sun_str = f"☀ {format_dt(item.sunrise)} ↓ {format_dt(item.sunset)}"
                 
-                table.add_row(date_str, temp_str, item.description, f"{item.precipitation_probability}%", sun_str)
+                precip_val = f"{item.precipitation_probability}%"
+                # Daily item doesn't have rate easily accessible in my model?
+                # I mapped `precipitation_probability` but `precipitation` object has `qpf` too.
+                # I need to update DailyForecastItem model to include rate/qpf.
+                # For now, let's just stick to probability for Daily or check if I can grab rate.
+                
+                table.add_row(date_str, temp_str, item.description, precip_val, sun_str)
             console.print(table)
 
     except AtmosAPIError as e:
