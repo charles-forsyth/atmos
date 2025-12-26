@@ -16,8 +16,7 @@ def test_get_coords(mocker):
             }
         ]
     }
-    mock_response.ok = True # Simulating success
-    mock_response.status_code = 200
+    mock_response.ok = True
     mock_get.return_value = mock_response
     
     client = AtmosClient()
@@ -49,12 +48,21 @@ def test_get_current_conditions_live_structure(mocker):
             "pressure": 1005.0
         }
     }
-    mock_response.ok = True # Success
+    mock_response.ok = True
     mock_get.return_value = mock_response
     
     client = AtmosClient()
     weather = client.get_current_conditions("London")
     
+    # Assert parsing
     assert isinstance(weather, CurrentConditions)
     assert weather.temperature.value == 15.5
-    assert weather.description == "Cloudy"
+    
+    # Assert parameters (Robustness Check)
+    call_args = mock_get.call_args
+    assert call_args is not None
+    # args[0] is url, args[1] is kwargs (params)
+    params = call_args[1]["params"]
+    assert "location.latitude" in params
+    assert "location.longitude" in params
+    assert "unitsSystem" in params

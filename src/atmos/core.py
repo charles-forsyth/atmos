@@ -38,10 +38,12 @@ class AtmosClient:
         lat, lng = self.get_coords(location)
         
         url = f"{self.base_url}/currentConditions:lookup"
+        # Corrected Parameters for REST mapping
         params = {
-            "location": f"{lat},{lng}",
+            "location.latitude": lat,
+            "location.longitude": lng,
             "key": self.api_key,
-            "units": "METRIC"
+            "unitsSystem": "METRIC" 
         }
         
         resp = requests.get(url, params=params)
