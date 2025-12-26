@@ -2,6 +2,9 @@ import requests
 from typing import Tuple
 from atmos.config import settings
 from atmos.models import CurrentConditions, Temperature, Wind, Precipitation
+from rich.console import Console
+
+console = Console()
 
 class AtmosClient:
     """
@@ -38,18 +41,16 @@ class AtmosClient:
         lat, lng = self.get_coords(location)
         
         url = f"{self.base_url}/currentConditions:lookup"
-        # Corrected Parameters for REST mapping
         params = {
             "location.latitude": lat,
             "location.longitude": lng,
             "key": self.api_key,
-            "unitsSystem": "METRIC" 
+            "unitsSystem": "METRIC"
         }
         
         resp = requests.get(url, params=params)
         
         if not resp.ok:
-             # Capture the full error details from the API
             raise ValueError(f"Weather API Error ({resp.status_code}): {resp.text}")
 
         data = resp.json()
@@ -68,7 +69,11 @@ class AtmosClient:
             units=feels_like_data.get("units", "CELSIUS")
         )
 
+        # Robust Wind Parsing
         wind_data = cond.get("wind", {})
+        if wind_data is None:
+            wind_data = {}
+            
         wind = Wind(
             speed=wind_data.get("speed", 0.0),
             direction=wind_data.get("direction", "N"),
@@ -76,6 +81,9 @@ class AtmosClient:
         )
 
         precip_data = cond.get("precipitation", {})
+        if precip_data is None:
+            precip_data = {}
+
         precip = Precipitation(
             type=precip_data.get("type", "None"),
             rate=precip_data.get("rate", 0.0),
