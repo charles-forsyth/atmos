@@ -134,6 +134,7 @@ class AtmosClient:
         lat, lng = self.get_coords(location)
         
         url = f"{self.base_url}/history/hours:lookup"
+        
         fetch_hours = min(hours, 24)
         
         params = {
@@ -150,6 +151,7 @@ class AtmosClient:
             raise ValueError(f"History API Error ({resp.status_code}): {resp.text}")
             
         data = resp.json()
+        
         history_items = []
         entries = data.get("historyHours", [])
         
@@ -290,14 +292,16 @@ class AtmosClient:
             raise ValueError(f"Alerts API Error ({resp.status_code}): {resp.text}")
             
         data = resp.json()
+        
+        # DEBUG
+        console.print("[yellow]DEBUG Alerts Response:[/yellow]")
+        console.print(data)
+        
         # Key is likely 'alerts' or 'weatherAlerts'
-        # I'll check 'alerts' first, then debug if empty/wrong.
         alerts_data = data.get("alerts", [])
         
         items = []
         for a in alerts_data:
-            # Parse fields
-            # Assumption on keys based on typical Google API
             headline = a.get("headline", "Alert")
             desc = a.get("description", "")
             severity = a.get("severity", "UNKNOWN")
