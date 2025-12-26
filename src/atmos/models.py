@@ -40,7 +40,6 @@ class HourlyHistoryItem(BaseModel):
     precipitation: Precipitation
     pressure: Optional[float] = 0.0
 
-# Alias for clarity
 HourlyForecastItem = HourlyHistoryItem
 
 class DailyForecastItem(BaseModel):
@@ -52,3 +51,14 @@ class DailyForecastItem(BaseModel):
     precipitation_probability: Optional[float] = 0.0
     sunrise: Optional[datetime] = None
     sunset: Optional[datetime] = None
+
+class WeatherAlert(BaseModel):
+    headline: str
+    description: str
+    type: str # e.g. "Tornado Warning"
+    severity: str
+    urgency: str
+    certainty: str
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    source: str

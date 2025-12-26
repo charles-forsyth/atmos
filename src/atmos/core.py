@@ -4,7 +4,7 @@ from datetime import datetime
 from atmos.config import settings
 from atmos.models import (
     CurrentConditions, Temperature, Wind, Precipitation, 
-    HourlyHistoryItem, HourlyForecastItem, DailyForecastItem
+    HourlyHistoryItem, HourlyForecastItem, DailyForecastItem, WeatherAlert
 )
 from rich.console import Console
 
@@ -134,7 +134,6 @@ class AtmosClient:
         lat, lng = self.get_coords(location)
         
         url = f"{self.base_url}/history/hours:lookup"
-        
         fetch_hours = min(hours, 24)
         
         params = {
@@ -147,19 +146,16 @@ class AtmosClient:
         }
         
         resp = requests.get(url, params=params)
-        
         if not resp.ok:
             raise ValueError(f"History API Error ({resp.status_code}): {resp.text}")
             
         data = resp.json()
-        
         history_items = []
         entries = data.get("historyHours", [])
         
         for entry in entries:
             interval = entry.get("interval", {})
             ts_str = interval.get("startTime")
-            
             if not ts_str:
                 continue
             
@@ -167,14 +163,9 @@ class AtmosClient:
             temp, feels_like, wind, precip, desc, humidity, pressure = self._parse_condition(entry)
             
             item = HourlyHistoryItem(
-                timestamp=ts,
-                temperature=temp,
-                feels_like=feels_like,
-                humidity=humidity,
-                description=desc,
-                wind=wind,
-                precipitation=precip,
-                pressure=pressure
+                timestamp=ts, temperature=temp, feels_like=feels_like,
+                humidity=humidity, description=desc, wind=wind,
+                precipitation=precip, pressure=pressure
             )
             history_items.append(item)
             
@@ -236,7 +227,6 @@ class AtmosClient:
             raise ValueError(f"Daily Forecast API Error ({resp.status_code}): {resp.text}")
             
         data = resp.json()
-        
         entries = data.get("forecastDays", [])
         
         items = []
@@ -248,28 +238,23 @@ class AtmosClient:
             
             date = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             
-            # Temps: maxTemperature / minTemperature
             low_obj = entry.get("minTemperature", {})
             high_obj = entry.get("maxTemperature", {})
             
             low_temp = Temperature(value=low_obj.get("degrees", 0.0), units=low_obj.get("unit", "CELSIUS"))
             high_temp = Temperature(value=high_obj.get("degrees", 0.0), units=high_obj.get("unit", "CELSIUS"))
             
-            # Condition: Use daytimeForecast or nighttimeForecast
-            target_forecast = entry.get("daytimeForecast") or entry.get("nighttimeForecast") or {}
+            day_forecast = entry.get("daytimeForecast")
+            night_forecast = entry.get("nighttimeForecast")
+            target_forecast = day_forecast or night_forecast or {}
             
             cond_obj = target_forecast.get("weatherCondition", {})
             desc_obj = cond_obj.get("description", {})
             desc = desc_obj.get("text", cond_obj.get("type", "Unknown"))
             
-            # Precip: Max of day/night probability?
-            # Or take from daytime?
-            # Let's check both
-            day_precip = target_forecast.get("precipitation", {}) # Default to day
-            
+            day_precip = target_forecast.get("precipitation", {})
             prob = day_precip.get("probability", {}).get("percent", 0.0)
             
-            # Sunrise/Sunset
             sun_obj = entry.get("sunEvents", {})
             sunrise_str = sun_obj.get("sunriseTime")
             sunset_str = sun_obj.get("sunsetTime")
@@ -285,6 +270,58 @@ class AtmosClient:
                 precipitation_probability=prob,
                 sunrise=sunrise,
                 sunset=sunset
+            ))
+            
+        return items
+
+    def get_public_alerts(self, location: str) -> List[WeatherAlert]:
+        """Fetches active weather alerts."""
+        lat, lng = self.get_coords(location)
+        url = f"{self.base_url}/publicAlerts:lookup"
+        
+        params = {
+            "location.latitude": lat,
+            "location.longitude": lng,
+            "key": self.api_key
+        }
+        
+        resp = requests.get(url, params=params)
+        if not resp.ok:
+            raise ValueError(f"Alerts API Error ({resp.status_code}): {resp.text}")
+            
+        data = resp.json()
+        # Key is likely 'alerts' or 'weatherAlerts'
+        # I'll check 'alerts' first, then debug if empty/wrong.
+        alerts_data = data.get("alerts", [])
+        
+        items = []
+        for a in alerts_data:
+            # Parse fields
+            # Assumption on keys based on typical Google API
+            headline = a.get("headline", "Alert")
+            desc = a.get("description", "")
+            severity = a.get("severity", "UNKNOWN")
+            urgency = a.get("urgency", "UNKNOWN")
+            certainty = a.get("certainty", "UNKNOWN")
+            event_type = a.get("event", "Unknown Event")
+            source = a.get("senderName", "Unknown Source")
+            
+            start_str = a.get("effective")
+            end_str = a.get("expires")
+            
+            start = datetime.fromisoformat(start_str.replace("Z", "+00:00")) if start_str else None
+            end = datetime.fromisoformat(end_str.replace("Z", "+00:00")) if end_str else None
+            
+            items.append(WeatherAlert(
+                headline=headline,
+                description=desc,
+                type=event_type,
+                severity=severity,
+                urgency=urgency,
+                certainty=certainty,
+                start_time=start,
+                end_time=end,
+                source=source
             ))
             
         return items
