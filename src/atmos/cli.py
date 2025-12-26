@@ -9,6 +9,7 @@ import asciichartpy
 
 from atmos.core import client
 from atmos.places import places_manager
+from atmos.utils import get_stargazing_conditions
 
 console = Console()
 
@@ -257,7 +258,6 @@ def graph(location_arg, location, hours, metric):
         series = []
         labels = []
         
-        # Build series
         for i, item in enumerate(items):
             val = 0.0
             if metric == 'temp':
@@ -268,16 +268,13 @@ def graph(location_arg, location, hours, metric):
                 val = item.wind.speed or 0.0
             
             series.append(val)
-            # Add labels every few ticks to avoid clutter
             if i % 4 == 0:
                 labels.append(format_dt(item.timestamp))
             else:
                 labels.append("")
 
-        # Render Chart
         console.print(f"\n[bold]{metric.title()} Trend ({hours}h)[/bold]")
         
-        # Configure chart color
         cfg = {"height": 15, "format": "{:8.1f}"}
         if metric == 'temp':
             cfg["colors"] = [asciichartpy.red]
@@ -287,11 +284,72 @@ def graph(location_arg, location, hours, metric):
         chart = asciichartpy.plot(series, cfg)
         console.print(Text.from_ansi(chart))
         
-        # Print simple legend/timeline
-        # (Asciichartpy doesn't support X-axis labels easily, so we can just print a start/end note)
         start_t = format_dt(items[0].timestamp)
         end_t = format_dt(items[-1].timestamp)
         console.print(f"[dim]Time: {start_t} -> {end_t}[/dim]")
+
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+
+@main.command()
+@click.argument("location_arg", required=False)
+@click.option("-L", "--location", help="City or location name")
+def stars(location_arg, location):
+    """Astronomy info and stargazing forecast."""
+    target = location_arg or location
+    if not target:
+        console.print("[bold red]Error:[/bold red] Missing location.")
+        return
+
+    saved_address = places_manager.get(target)
+    final_location = saved_address if saved_address else target
+    
+    try:
+        # Get today's forecast for astronomy data
+        console.print(f"[cyan]Fetching astronomy data for {final_location}...[/cyan]")
+        items = client.get_daily_forecast(final_location, days=1)
+        if not items:
+            console.print("[yellow]No data.[/yellow]")
+            return
+            
+        today = items[0]
+        
+        # Stargazing logic
+        condition_report = get_stargazing_conditions(today.cloud_cover or 0, today.moon_phase or "Unknown")
+        
+        # UI
+        grid = Table.grid(expand=True, padding=(1, 2))
+        grid.add_column(ratio=1)
+        grid.add_column(ratio=1)
+        
+        # Sun Panel
+        sun_table = Table(show_header=False, box=None)
+        sun_table.add_row("Rise", format_dt(today.sunrise) if today.sunrise else "-")
+        sun_table.add_row("Set", format_dt(today.sunset) if today.sunset else "-")
+        
+        # Moon Panel
+        moon_table = Table(show_header=False, box=None)
+        moon_table.add_row("Phase", today.moon_phase.replace("_", " ").title())
+        moon_table.add_row("Rise", format_dt(today.moonrise) if today.moonrise else "-")
+        moon_table.add_row("Set", format_dt(today.moonset) if today.moonset else "-")
+        
+        grid.add_row(
+            Panel(sun_table, title="☀ Sun", border_style="yellow"),
+            Panel(moon_table, title="☾ Moon", border_style="white")
+        )
+        
+        # Condition Panel
+        cond_panel = Panel(
+            f"Cloud Cover: {today.cloud_cover}%\n\n[bold]{condition_report}[/bold]",
+            title="✨ Stargazing Forecast",
+            border_style="blue"
+        )
+        
+        main_layout = Table.grid(expand=True)
+        main_layout.add_row(grid)
+        main_layout.add_row(cond_panel)
+        
+        console.print(Panel(main_layout, title=f"Astronomy: {final_location}", border_style="magenta"))
 
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
