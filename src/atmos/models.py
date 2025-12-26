@@ -3,33 +3,27 @@ from typing import Optional
 
 # --- Weather Data Models ---
 
-
 class Temperature(BaseModel):
-    value: float
+    value: float = 0.0
     units: str = "CELSIUS"
 
-
 class Wind(BaseModel):
-    speed: Optional[float] = None
-    direction: Optional[str] = None  # e.g., "NE" or degrees
-    gust: Optional[float] = None
-
+    speed: Optional[float] = 0.0
+    direction: Optional[str] = "N"
+    gust: Optional[float] = 0.0
 
 class Precipitation(BaseModel):
     type: str = "None"
-    rate: float = 0.0  # mm/hr
+    rate: float = 0.0
     probability: float = 0.0
-
 
 class CurrentConditions(BaseModel):
     temperature: Temperature
     feels_like: Temperature
-    humidity: float  # Percentage
-    description: str  # "Sunny", "Partly Cloudy"
+    humidity: float = 0.0
+    description: str = "Unknown"
     wind: Wind
     precipitation: Precipitation
-    uv_index: int
-    visibility: float  # meters
-    pressure: float  # hPa
-
-    # We can add more fields as we discover the exact API response structure
+    uv_index: int = 0
+    visibility: float = 10000.0
+    pressure: float = 1013.25
