@@ -24,18 +24,18 @@ def test_get_history(mocker):
     mock_get = mocker.patch("requests.get")
     mock_response = mocker.Mock()
     
-    # Simulated History Response (historyHours)
+    # Simulated History Response (historyHours with interval)
     mock_response.json.return_value = {
         "historyHours": [
             {
-                "startTime": "2023-10-05T10:00:00Z",
+                "interval": {"startTime": "2023-10-05T10:00:00Z"},
                 "temperature": {"degrees": 50.0, "unit": "FAHRENHEIT"},
                 "weatherCondition": {"description": {"text": "Rain"}, "type": "RAIN"},
                 "wind": {"speed": {"value": 10}, "direction": {"cardinal": "N"}},
                 "precipitation": {"probability": {"percent": 90}, "qpf": {"quantity": 0.5}}
             },
             {
-                "startTime": "2023-10-05T11:00:00Z",
+                "interval": {"startTime": "2023-10-05T11:00:00Z"},
                 "temperature": {"degrees": 52.0, "unit": "FAHRENHEIT"},
                 "weatherCondition": {"description": {"text": "Cloudy"}},
                 "wind": {"speed": {"value": 12}, "direction": {"cardinal": "NE"}}
@@ -51,3 +51,4 @@ def test_get_history(mocker):
     assert len(history) == 2
     assert isinstance(history[0], HourlyHistoryItem)
     assert history[0].temperature.value == 50.0
+    assert history[0].timestamp.hour == 10

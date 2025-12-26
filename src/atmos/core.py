@@ -151,16 +151,15 @@ class AtmosClient:
             
         data = resp.json()
         
-        # DEBUG
-        console.print("[yellow]DEBUG History Response:[/yellow]")
-        console.print(data)
-        
         history_items = []
         # Response key: historyHours (per search result)
         entries = data.get("historyHours", [])
         
         for entry in entries:
-            ts_str = entry.get("startTime") or entry.get("pointInTime") 
+            # Timestamp is in 'interval' -> 'startTime'
+            interval = entry.get("interval", {})
+            ts_str = interval.get("startTime")
+            
             if not ts_str:
                 continue
             
