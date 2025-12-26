@@ -1,6 +1,6 @@
 import requests
 from typing import Tuple, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from atmos.config import settings
 from atmos.models import (
     CurrentConditions, Temperature, Wind, Precipitation, 
@@ -188,7 +188,7 @@ class AtmosClient:
         params = {
             "location.latitude": lat,
             "location.longitude": lng,
-            "hours": min(hours, 240), # API limit 240
+            "hours": min(hours, 240), 
             "key": self.api_key,
             "unitsSystem": "IMPERIAL",
             "pageSize": min(hours, 24) 
@@ -199,14 +199,13 @@ class AtmosClient:
             raise ValueError(f"Forecast API Error ({resp.status_code}): {resp.text}")
             
         data = resp.json()
-        entries = data.get("forecastHours", []) # Guessing key
+        entries = data.get("forecastHours", []) 
         
         items = []
         for entry in entries:
             interval = entry.get("interval", {})
             ts_str = interval.get("startTime")
-            if not ts_str:
-                continue
+            if not ts_str: continue
             
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             temp, feels_like, wind, precip, desc, humidity, pressure = self._parse_condition(entry)
@@ -236,11 +235,15 @@ class AtmosClient:
             raise ValueError(f"Daily Forecast API Error ({resp.status_code}): {resp.text}")
             
         data = resp.json()
+        
+        # DEBUG
+        console.print("[yellow]DEBUG Forecast Response:[/yellow]")
+        console.print(data)
+        
         entries = data.get("forecastDays", [])
         
         items = []
         for entry in entries:
-            # Parse Date from interval? or 'displayDateTime'?
             interval = entry.get("interval", {})
             ts_str = interval.get("startTime")
             if not ts_str:
@@ -260,7 +263,7 @@ class AtmosClient:
             desc = desc_obj.get("text", cond_obj.get("type", "Unknown"))
             
             precip_obj = entry.get("precipitation", {})
-            prob = precip_obj.get("maxProbability", {}).get("percent", 0.0) # Daily usually has maxProb
+            prob = precip_obj.get("maxProbability", {}).get("percent", 0.0) 
             
             # Sunrise/Sunset
             sun_obj = entry.get("sunEvents", {})
