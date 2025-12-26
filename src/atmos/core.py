@@ -6,6 +6,7 @@ from atmos.models import (
     CurrentConditions, Temperature, Wind, Precipitation, 
     HourlyHistoryItem, HourlyForecastItem, DailyForecastItem, WeatherAlert
 )
+from atmos.exceptions import AtmosAPIError
 from rich.console import Console
 
 console = Console()
@@ -22,13 +23,33 @@ class AtmosClient:
         self.base_url = "https://weather.googleapis.com/v1" 
         self.geocode_url = "https://maps.googleapis.com/maps/api/geocode/json"
 
+    def _handle_error(self, resp: requests.Response):
+        """Parses API error responses into AtmosAPIError."""
+        try:
+            data = resp.json()
+            err_obj = data.get("error", {})
+            msg = err_obj.get("message", resp.text)
+            
+            # Common handling
+            if resp.status_code == 404:
+                msg = "Weather data is not available for this location."
+            elif resp.status_code == 403:
+                msg = "API Key invalid or permission denied. Check your GCP Console."
+            elif resp.status_code == 400:
+                msg = f"Invalid request: {msg}"
+                
+        except Exception:
+            msg = resp.text
+            
+        raise AtmosAPIError(resp.status_code, msg, resp.text)
+
     def get_coords(self, location: str) -> Tuple[float, float]:
         """Resolves a string location to (lat, lng)."""
         params = {"address": location, "key": self.api_key}
         resp = requests.get(self.geocode_url, params=params)
         
         if not resp.ok:
-            raise ValueError(f"Geocoding Error ({resp.status_code}): {resp.text}")
+            self._handle_error(resp)
             
         data = resp.json()
         
@@ -40,6 +61,9 @@ class AtmosClient:
 
     def _parse_condition(self, data: Dict[str, Any]) -> Tuple[Temperature, Temperature, Wind, Precipitation, str, float, float]:
         """Helper to parse common fields from a data block (current or history)."""
+        if data is None:
+            data = {}
+        
         # Temperature
         temp_obj = data.get("temperature", {})
         temp = Temperature(
@@ -106,7 +130,7 @@ class AtmosClient:
         resp = requests.get(url, params=params)
         
         if not resp.ok:
-            raise ValueError(f"Weather API Error ({resp.status_code}): {resp.text}")
+            self._handle_error(resp)
 
         data = resp.json()
         cond = data.get("currentConditions", data)
@@ -147,7 +171,7 @@ class AtmosClient:
         
         resp = requests.get(url, params=params)
         if not resp.ok:
-            raise ValueError(f"History API Error ({resp.status_code}): {resp.text}")
+            self._handle_error(resp)
             
         data = resp.json()
         
@@ -188,7 +212,7 @@ class AtmosClient:
         
         resp = requests.get(url, params=params)
         if not resp.ok:
-            raise ValueError(f"Forecast API Error ({resp.status_code}): {resp.text}")
+            self._handle_error(resp)
             
         data = resp.json()
         entries = data.get("forecastHours", []) 
@@ -225,7 +249,7 @@ class AtmosClient:
         
         resp = requests.get(url, params=params)
         if not resp.ok:
-            raise ValueError(f"Daily Forecast API Error ({resp.status_code}): {resp.text}")
+            self._handle_error(resp)
             
         data = resp.json()
         entries = data.get("forecastDays", [])
@@ -317,7 +341,7 @@ class AtmosClient:
         
         resp = requests.get(url, params=params)
         if not resp.ok:
-            raise ValueError(f"Alerts API Error ({resp.status_code}): {resp.text}")
+            self._handle_error(resp)
             
         data = resp.json()
         alerts_data = data.get("alerts", [])
