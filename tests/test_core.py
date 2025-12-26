@@ -1,8 +1,7 @@
 from atmos.core import AtmosClient
-from atmos.models import HourlyHistoryItem
+from atmos.models import DailyForecastItem
 
 def test_get_coords(mocker):
-    """Test the geocoding logic (mocked)."""
     mock_get = mocker.patch("requests.get")
     mock_response = mocker.Mock()
     mock_response.json.return_value = {
@@ -15,30 +14,22 @@ def test_get_coords(mocker):
     lat, lng = client.get_coords("New York")
     assert lat == 40.7128
 
-def test_get_history(mocker):
-    """Test fetching history."""
-    # Mock Geocode
+def test_get_forecast(mocker):
+    """Test fetching daily forecast."""
     mocker.patch.object(AtmosClient, "get_coords", return_value=(40.7128, -74.0060))
-    
-    # Mock API Response
     mock_get = mocker.patch("requests.get")
     mock_response = mocker.Mock()
     
-    # Simulated History Response (historyHours with interval)
+    # Simulated Forecast Response
     mock_response.json.return_value = {
-        "historyHours": [
+        "forecastDays": [
             {
-                "interval": {"startTime": "2023-10-05T10:00:00Z"},
-                "temperature": {"degrees": 50.0, "unit": "FAHRENHEIT"},
-                "weatherCondition": {"description": {"text": "Rain"}, "type": "RAIN"},
-                "wind": {"speed": {"value": 10}, "direction": {"cardinal": "N"}},
-                "precipitation": {"probability": {"percent": 90}, "qpf": {"quantity": 0.5}}
-            },
-            {
-                "interval": {"startTime": "2023-10-05T11:00:00Z"},
-                "temperature": {"degrees": 52.0, "unit": "FAHRENHEIT"},
-                "weatherCondition": {"description": {"text": "Cloudy"}},
-                "wind": {"speed": {"value": 12}, "direction": {"cardinal": "NE"}}
+                "interval": {"startTime": "2023-10-06T00:00:00Z"},
+                "highTemperature": {"degrees": 60.0, "unit": "FAHRENHEIT"},
+                "lowTemperature": {"degrees": 40.0, "unit": "FAHRENHEIT"},
+                "weatherCondition": {"description": {"text": "Sunny"}},
+                "precipitation": {"maxProbability": {"percent": 10}},
+                "sunEvents": {"sunriseTime": "2023-10-06T06:00:00Z", "sunsetTime": "2023-10-06T18:00:00Z"}
             }
         ]
     }
@@ -46,9 +37,34 @@ def test_get_history(mocker):
     mock_get.return_value = mock_response
     
     client = AtmosClient()
-    history = client.get_hourly_history("London", hours=2)
+    forecast = client.get_daily_forecast("London", days=1)
     
-    assert len(history) == 2
-    assert isinstance(history[0], HourlyHistoryItem)
-    assert history[0].temperature.value == 50.0
-    assert history[0].timestamp.hour == 10
+    assert len(forecast) == 1
+    assert isinstance(forecast[0], DailyForecastItem)
+    assert forecast[0].high_temp.value == 60.0
+    assert forecast[0].description == "Sunny"
+    assert forecast[0].sunrise.hour == 6
+
+def test_get_hourly_forecast(mocker):
+    mocker.patch.object(AtmosClient, "get_coords", return_value=(40.7128, -74.0060))
+    mock_get = mocker.patch("requests.get")
+    mock_response = mocker.Mock()
+    
+    # Simulated Hourly Response
+    mock_response.json.return_value = {
+        "forecastHours": [
+            {
+                "interval": {"startTime": "2023-10-06T12:00:00Z"},
+                "temperature": {"degrees": 55.0},
+                "weatherCondition": {"description": {"text": "Cloudy"}}
+            }
+        ]
+    }
+    mock_response.ok = True
+    mock_get.return_value = mock_response
+    
+    client = AtmosClient()
+    items = client.get_hourly_forecast("London", hours=1)
+    
+    assert len(items) == 1
+    assert items[0].temperature.value == 55.0
