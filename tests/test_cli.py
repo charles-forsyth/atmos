@@ -21,14 +21,14 @@ def test_cli_current_positional(mocker):
     runner = CliRunner()
     result = runner.invoke(main, ["New York"]) 
     assert result.exit_code == 0
-    assert "Current Conditions: New York" in result.output
+    assert "Current: New York" in result.output
 
 def test_cli_current_flag(mocker):
     mocker.patch("atmos.core.client.get_current_conditions", return_value=create_dummy_weather())
     runner = CliRunner()
     result = runner.invoke(main, ["current", "-L", "New York"])
     assert result.exit_code == 0
-    assert "Current Conditions: New York" in result.output
+    assert "Current: New York" in result.output
 
 def test_cli_places_integration(mocker):
     mocker.patch("atmos.core.client.get_current_conditions", return_value=create_dummy_weather())
@@ -36,7 +36,7 @@ def test_cli_places_integration(mocker):
     runner = CliRunner()
     result = runner.invoke(main, ["Home"])
     assert result.exit_code == 0
-    assert "Current Conditions: 123 Main St" in result.output
+    assert "Current: 123 Main St" in result.output
 
 def test_cli_places_commands(mocker):
     mock_add = mocker.patch("atmos.places.places_manager.add")

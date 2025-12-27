@@ -83,36 +83,43 @@ def current(location_arg, location):
     try:
         weather = client.get_current_conditions(final_location)
 
-        header_text = Text(f"Current Conditions: {final_location}", style="bold cyan")
+        # Main Layout Grid
+        grid = Table.grid(expand=True, padding=(0, 2))
+        grid.add_column()
+        grid.add_column()
 
-        main_info = Table.grid(expand=True)
-        main_info.add_column(justify="center")
-        
+        # Left Column: Temperature & Condition
         unit_label = "°F" if "FAHRENHEIT" in (weather.temperature.units or "").upper() else "°C"
+        left_table = Table.grid(padding=(0, 1))
+        left_table.add_column(justify="center")
         
-        main_info.add_row(f"[bold active]{weather.temperature.value}{unit_label}[/bold active]")
-        main_info.add_row(f"[italic]{weather.description}[/italic]")
+        # Big Temp
+        left_table.add_row(f"[bold cyan size=3]{weather.temperature.value}{unit_label}[/bold cyan size=3]")
+        # Condition
+        left_table.add_row(f"[italic]{weather.description}[/italic]")
+        # Feels Like
+        left_table.add_row(f"[dim]Feels like {weather.feels_like.value}{unit_label}[/dim]")
 
-        details = Table(show_header=False, box=box.SIMPLE, expand=True)
-        details.add_column("Metric", style="dim")
-        details.add_column("Value", style="bold")
+        # Right Column: Details
+        right_table = Table.grid(padding=(0, 1))
+        right_table.add_column(style="bold white", width=12)
+        right_table.add_column()
+
+        right_table.add_row("Wind:", f"{weather.wind.speed} {weather.wind.direction}")
+        right_table.add_row("Humidity:", f"{weather.humidity}%")
+        right_table.add_row("UV Index:", str(weather.uv_index))
+        right_table.add_row("Visibility:", f"{weather.visibility}")
+        right_table.add_row("Pressure:", f"{weather.pressure} hPa")
         
-        details.add_row("Feels Like", f"{weather.feels_like.value}{unit_label}")
-        details.add_row("Wind", f"{weather.wind.speed} {weather.wind.direction}")
-        details.add_row("Humidity", f"{weather.humidity}%")
-        details.add_row("UV Index", str(weather.uv_index))
-        details.add_row("Visibility", f"{weather.visibility}") 
-        details.add_row("Pressure", f"{weather.pressure} hPa")
+        # Add to main grid
+        grid.add_row(left_table, right_table)
 
-        content = Table.grid(expand=True, padding=(1, 2))
-        content.add_column(ratio=1)
-        content.add_column(ratio=1)
-        content.add_row(
-            Panel(main_info, title="Temperature", border_style="blue"),
-            Panel(details, title="Details", border_style="green"),
-        )
-
-        console.print(Panel(content, title=header_text, border_style="cyan"))
+        console.print(Panel(
+            grid, 
+            title=f"Current: {final_location}", 
+            border_style="cyan",
+            expand=False
+        ))
 
     except AtmosAPIError as e:
         console.print(f"[bold red]API Error:[/bold red] {e.message}")
