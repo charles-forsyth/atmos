@@ -4,19 +4,23 @@ from datetime import datetime
 
 # --- Weather Data Models ---
 
+
 class Temperature(BaseModel):
     value: Optional[float] = 0.0
     units: Optional[str] = "CELSIUS"
+
 
 class Wind(BaseModel):
     speed: Optional[float] = 0.0
     direction: Optional[str] = "N"
     gust: Optional[float] = 0.0
 
+
 class Precipitation(BaseModel):
     type: Optional[str] = "None"
     rate: Optional[float] = 0.0
     probability: Optional[float] = 0.0
+
 
 class CurrentConditions(BaseModel):
     temperature: Temperature
@@ -29,6 +33,7 @@ class CurrentConditions(BaseModel):
     visibility: Optional[float] = 10000.0
     pressure: Optional[float] = 1013.25
 
+
 class HourlyHistoryItem(BaseModel):
     timestamp: datetime
     temperature: Temperature
@@ -39,7 +44,9 @@ class HourlyHistoryItem(BaseModel):
     precipitation: Precipitation
     pressure: Optional[float] = 0.0
 
+
 HourlyForecastItem = HourlyHistoryItem
+
 
 class DailyForecastItem(BaseModel):
     date: datetime
@@ -53,12 +60,13 @@ class DailyForecastItem(BaseModel):
     moonrise: Optional[datetime] = None
     moonset: Optional[datetime] = None
     cloud_cover: Optional[int] = 0
-    max_wind: Optional[Wind] = None # Added
+    max_wind: Optional[Wind] = None  # Added
+
 
 class WeatherAlert(BaseModel):
     headline: str
     description: str
-    type: str 
+    type: str
     severity: str
     urgency: str
     certainty: str
