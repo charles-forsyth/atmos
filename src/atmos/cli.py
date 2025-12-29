@@ -15,23 +15,27 @@ from atmos.exceptions import AtmosAPIError
 
 console = Console()
 
+
 def format_dt(dt: datetime) -> str:
-    local_dt = dt.astimezone() 
+    local_dt = dt.astimezone()
     return local_dt.strftime("%H:%M")
+
 
 def format_time_ampm(dt: datetime) -> str:
     """Formats time as 07:18 AM."""
     local_dt = dt.astimezone()
     return local_dt.strftime("%I:%M %p")
 
+
 def format_date(dt: datetime) -> str:
     local_dt = dt.astimezone()
     return local_dt.strftime("%a %b %d")
 
+
 class DefaultGroup(click.Group):
     def parse_args(self, ctx, args):
         if not args:
-            return super().parse_args(ctx, args)
+            return super().parse_args(ctx, ["forecast", "-L", "Home", "--hourly"])
         cmd_name = args[0]
         if cmd_name in self.commands or cmd_name in ctx.help_option_names:
             return super().parse_args(ctx, args)
@@ -89,16 +93,22 @@ def current(location_arg, location):
         grid.add_column()
 
         # Left Column: Temperature & Condition
-        unit_label = "°F" if "FAHRENHEIT" in (weather.temperature.units or "").upper() else "°C"
+        unit_label = (
+            "°F" if "FAHRENHEIT" in (weather.temperature.units or "").upper() else "°C"
+        )
         left_table = Table.grid(padding=(0, 1))
         left_table.add_column(justify="center")
-        
+
         # Big Temp
-        left_table.add_row(f"[bold cyan size=3]{weather.temperature.value}{unit_label}[/bold cyan size=3]")
+        left_table.add_row(
+            f"[bold cyan size=3]{weather.temperature.value}{unit_label}[/bold cyan size=3]"
+        )
         # Condition
         left_table.add_row(f"[italic]{weather.description}[/italic]")
         # Feels Like
-        left_table.add_row(f"[dim]Feels like {weather.feels_like.value}{unit_label}[/dim]")
+        left_table.add_row(
+            f"[dim]Feels like {weather.feels_like.value}{unit_label}[/dim]"
+        )
 
         # Right Column: Details
         right_table = Table.grid(padding=(0, 1))
@@ -110,16 +120,18 @@ def current(location_arg, location):
         right_table.add_row("UV Index:", str(weather.uv_index))
         right_table.add_row("Visibility:", f"{weather.visibility}")
         right_table.add_row("Pressure:", f"{weather.pressure} hPa")
-        
+
         # Add to main grid
         grid.add_row(left_table, right_table)
 
-        console.print(Panel(
-            grid, 
-            title=f"Current: {final_location}", 
-            border_style="cyan",
-            expand=False
-        ))
+        console.print(
+            Panel(
+                grid,
+                title=f"Current: {final_location}",
+                border_style="cyan",
+                expand=False,
+            )
+        )
 
     except AtmosAPIError as e:
         console.print(f"[bold red]API Error:[/bold red] {e.message}")
@@ -149,11 +161,13 @@ def history(location_arg, location, hours):
 
     saved_address = places_manager.get(target)
     final_location = saved_address if saved_address else target
-    
+
     try:
-        console.print(f"[cyan]Fetching history for {final_location} (Last {hours} hours)...[/cyan]")
+        console.print(
+            f"[cyan]Fetching history for {final_location} (Last {hours} hours)...[/cyan]"
+        )
         history_items = client.get_hourly_history(final_location, hours=hours)
-        
+
         if not history_items:
             console.print("[yellow]No history data returned.[/yellow]")
             return
@@ -164,25 +178,28 @@ def history(location_arg, location, hours):
         table.add_column("Condition", style="white")
         table.add_column("Wind", style="green")
         table.add_column("Precip", style="blue")
-        
+
         for item in history_items:
             time_str = format_dt(item.timestamp)
-            unit_label = "°F" if "FAHRENHEIT" in (item.temperature.units or "").upper() else "°C"
+            unit_label = (
+                "°F" if "FAHRENHEIT" in (item.temperature.units or "").upper() else "°C"
+            )
             temp_str = f"{item.temperature.value}{unit_label}"
-            
+
             wind_str = f"{item.wind.speed} {item.wind.direction}"
             precip_str = f"{item.precipitation.probability}%"
             if item.precipitation.rate and item.precipitation.rate > 0:
-                 precip_str += f" ({item.precipitation.rate}\")"
-            
+                precip_str += f' ({item.precipitation.rate}")'
+
             table.add_row(time_str, temp_str, item.description, wind_str, precip_str)
-            
+
         console.print(table)
 
     except AtmosAPIError as e:
         console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
+
 
 @main.command()
 @click.argument("location_arg", required=False)
@@ -208,57 +225,75 @@ def forecast(location_arg, location, days, hourly):
 
     saved_address = places_manager.get(target)
     final_location = saved_address if saved_address else target
-    
+
     try:
         if hourly:
-            console.print(f"[cyan]Fetching hourly forecast for {final_location}...[/cyan]")
-            items = client.get_hourly_forecast(final_location, hours=days*24) 
-            
-            table = Table(title=f"Hourly Forecast: {final_location}", box=box.SIMPLE_HEAD)
+            console.print(
+                f"[cyan]Fetching hourly forecast for {final_location}...[/cyan]"
+            )
+            items = client.get_hourly_forecast(final_location, hours=days * 24)
+
+            table = Table(
+                title=f"Hourly Forecast: {final_location}", box=box.SIMPLE_HEAD
+            )
             table.add_column("Time", style="dim")
             table.add_column("Temp", style="bold cyan")
             table.add_column("Condition", style="white")
             table.add_column("Wind", style="green")
             table.add_column("Precip", style="blue")
-            
+
             for item in items:
                 time_str = format_dt(item.timestamp)
-                unit_label = "°F" if "FAHRENHEIT" in (item.temperature.units or "").upper() else "°C"
+                unit_label = (
+                    "°F"
+                    if "FAHRENHEIT" in (item.temperature.units or "").upper()
+                    else "°C"
+                )
                 temp_str = f"{item.temperature.value}{unit_label}"
                 wind_str = f"{item.wind.speed} {item.wind.direction}"
                 precip_str = f"{item.precipitation.probability}%"
                 if item.precipitation.rate and item.precipitation.rate > 0:
-                     precip_str += f" ({item.precipitation.rate}\")"
-                
-                table.add_row(time_str, temp_str, item.description, wind_str, precip_str)
+                    precip_str += f' ({item.precipitation.rate}")'
+
+                table.add_row(
+                    time_str, temp_str, item.description, wind_str, precip_str
+                )
             console.print(table)
-            
+
         else:
-            console.print(f"[cyan]Fetching daily forecast for {final_location} ({days} days)...[/cyan]")
+            console.print(
+                f"[cyan]Fetching daily forecast for {final_location} ({days} days)...[/cyan]"
+            )
             items = client.get_daily_forecast(final_location, days=days)
-            
-            table = Table(title=f"Daily Forecast: {final_location}", box=box.SIMPLE_HEAD)
+
+            table = Table(
+                title=f"Daily Forecast: {final_location}", box=box.SIMPLE_HEAD
+            )
             table.add_column("Date", style="dim")
             table.add_column("High/Low", style="bold cyan")
             table.add_column("Condition", style="white")
             table.add_column("Precip", style="blue")
             table.add_column("Sun", style="yellow")
-            
+
             for item in items:
                 date_str = format_date(item.date)
-                unit_label = "°F" if "FAHRENHEIT" in (item.high_temp.units or "").upper() else "°C"
+                unit_label = (
+                    "°F"
+                    if "FAHRENHEIT" in (item.high_temp.units or "").upper()
+                    else "°C"
+                )
                 temp_str = f"{item.high_temp.value}{unit_label} / {item.low_temp.value}{unit_label}"
-                
+
                 sun_str = ""
                 if item.sunrise and item.sunset:
                     sun_str = f"☀ {format_dt(item.sunrise)} ↓ {format_dt(item.sunset)}"
-                
+
                 precip_val = f"{item.precipitation_probability}%"
                 # Daily item doesn't have rate easily accessible in my model?
                 # I mapped `precipitation_probability` but `precipitation` object has `qpf` too.
                 # I need to update DailyForecastItem model to include rate/qpf.
                 # For now, let's just stick to probability for Daily or check if I can grab rate.
-                
+
                 table.add_row(date_str, temp_str, item.description, precip_val, sun_str)
             console.print(table)
 
@@ -266,6 +301,7 @@ def forecast(location_arg, location, days, hourly):
         console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
+
 
 @main.command()
 @click.argument("location_arg", required=False)
@@ -288,22 +324,22 @@ def alert(location_arg, location):
 
     saved_address = places_manager.get(target)
     final_location = saved_address if saved_address else target
-    
+
     try:
         console.print(f"[cyan]Checking for active alerts in {final_location}...[/cyan]")
         alerts = client.get_public_alerts(final_location)
-        
+
         if not alerts:
             console.print("[bold green]✓ No active weather alerts.[/bold green]")
             return
-            
+
         for a in alerts:
             style = "bold red" if a.severity in ["SEVERE", "EXTREME"] else "bold yellow"
             panel = Panel(
                 f"[bold]{a.headline}[/bold]\n\n{a.description}",
                 title=f"[{style}]{a.type} ({a.severity})[/{style}]",
                 subtitle=f"Source: {a.source}",
-                border_style="red"
+                border_style="red",
             )
             console.print(panel)
 
@@ -312,11 +348,17 @@ def alert(location_arg, location):
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
 
+
 @main.command()
 @click.argument("location_arg", required=False)
 @click.option("-L", "--location", help="City or location name")
 @click.option("--hours", default=24, help="Number of hours to graph (default: 24)")
-@click.option("--metric", default="temp", type=click.Choice(['temp', 'precip', 'wind']), help="Metric to graph")
+@click.option(
+    "--metric",
+    default="temp",
+    type=click.Choice(["temp", "precip", "wind"]),
+    help="Metric to graph",
+)
 def graph(location_arg, location, hours, metric):
     """
     Visualize weather trends (ASCII Graph).
@@ -335,27 +377,27 @@ def graph(location_arg, location, hours, metric):
 
     saved_address = places_manager.get(target)
     final_location = saved_address if saved_address else target
-    
+
     try:
         console.print(f"[cyan]Fetching forecast for {final_location}...[/cyan]")
         items = client.get_hourly_forecast(final_location, hours=hours)
-        
+
         if not items:
             console.print("[yellow]No data available.[/yellow]")
             return
-            
+
         series = []
         labels = []
-        
+
         for i, item in enumerate(items):
             val = 0.0
-            if metric == 'temp':
+            if metric == "temp":
                 val = item.temperature.value or 0.0
-            elif metric == 'precip':
+            elif metric == "precip":
                 val = item.precipitation.probability or 0.0
-            elif metric == 'wind':
+            elif metric == "wind":
                 val = item.wind.speed or 0.0
-            
+
             series.append(val)
             if i % 4 == 0:
                 labels.append(format_dt(item.timestamp))
@@ -363,16 +405,16 @@ def graph(location_arg, location, hours, metric):
                 labels.append("")
 
         console.print(f"\n[bold]{metric.title()} Trend ({hours}h)[/bold]")
-        
+
         cfg = {"height": 15, "format": "{:8.1f}"}
-        if metric == 'temp':
+        if metric == "temp":
             cfg["colors"] = [asciichartpy.red]
-        elif metric == 'precip':
+        elif metric == "precip":
             cfg["colors"] = [asciichartpy.blue]
-        
+
         chart = asciichartpy.plot(series, cfg)
         console.print(Text.from_ansi(chart))
-        
+
         start_t = format_dt(items[0].timestamp)
         end_t = format_dt(items[-1].timestamp)
         console.print(f"[dim]Time: {start_t} -> {end_t}[/dim]")
@@ -381,6 +423,7 @@ def graph(location_arg, location, hours, metric):
         console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
+
 
 @main.command()
 @click.argument("location_arg", required=False)
@@ -403,7 +446,7 @@ def stars(location_arg, location):
 
     saved_address = places_manager.get(target)
     final_location = saved_address if saved_address else target
-    
+
     try:
         # Get today's forecast for astronomy data
         console.print(f"[cyan]Fetching astronomy data for {final_location}...[/cyan]")
@@ -411,11 +454,13 @@ def stars(location_arg, location):
         if not items:
             console.print("[yellow]No data.[/yellow]")
             return
-            
+
         today = items[0]
-        
-        condition_report = get_stargazing_conditions(today.cloud_cover or 0, today.moon_phase or "Unknown")
-        
+
+        condition_report = get_stargazing_conditions(
+            today.cloud_cover or 0, today.moon_phase or "Unknown"
+        )
+
         # Calculate Daylight
         daylight_str = "-"
         if today.sunrise and today.sunset:
@@ -427,60 +472,75 @@ def stars(location_arg, location):
         grid = Table.grid(expand=True, padding=(0, 2))
         grid.add_column()
         grid.add_column()
-        
+
         sun_table = Table.grid(padding=(0, 1))
-        sun_table.add_column(style="bold yellow", width=12) 
+        sun_table.add_column(style="bold yellow", width=12)
         sun_table.add_column()
-        
+
         sun_table.add_row("☀ Sun", "")
-        sun_table.add_row("Rise:", format_time_ampm(today.sunrise) if today.sunrise else "-")
-        sun_table.add_row("Set:", format_time_ampm(today.sunset) if today.sunset else "-")
+        sun_table.add_row(
+            "Rise:", format_time_ampm(today.sunrise) if today.sunrise else "-"
+        )
+        sun_table.add_row(
+            "Set:", format_time_ampm(today.sunset) if today.sunset else "-"
+        )
         sun_table.add_row("Daylight:", daylight_str)
-        
+
         moon_table = Table.grid(padding=(0, 1))
         moon_table.add_column(style="bold white", width=12)
         moon_table.add_column()
-        
+
         moon_table.add_row("☾ Moon", "")
         moon_table.add_row("Phase:", today.moon_phase.replace("_", " ").title())
-        moon_table.add_row("Rise:", format_time_ampm(today.moonrise) if today.moonrise else "-")
-        moon_table.add_row("Set:", format_time_ampm(today.moonset) if today.moonset else "-")
-        
+        moon_table.add_row(
+            "Rise:", format_time_ampm(today.moonrise) if today.moonrise else "-"
+        )
+        moon_table.add_row(
+            "Set:", format_time_ampm(today.moonset) if today.moonset else "-"
+        )
+
         grid.add_row(sun_table, moon_table)
-        
+
         grid.add_row("", "")
         grid.add_row("", "")
-        
+
         cond_table = Table.grid(padding=(0, 1))
         cond_table.add_column(style="bold blue", width=12)
         cond_table.add_column()
-        
+
         cond_table.add_row("☁ Conditions", "")
-        cond_table.add_row("Cloud Cover:", f"{today.cloud_cover}% ({condition_report.split('.')[0]})")
+        cond_table.add_row(
+            "Cloud Cover:", f"{today.cloud_cover}% ({condition_report.split('.')[0]})"
+        )
         cond_table.add_row("Precip:", f"{today.precipitation_probability}%")
         cond_table.add_row("Stargazing:", f"[italic]{condition_report}[/italic]")
-        
+
         final_layout = Table.grid(expand=True)
         final_layout.add_row(grid)
         final_layout.add_row(cond_table)
-        
+
         date_str = format_date(today.date)
-        console.print(Panel(
-            final_layout, 
-            title=f"Astronomy: {final_location} ({date_str})", 
-            border_style="magenta",
-            expand=False
-        ))
+        console.print(
+            Panel(
+                final_layout,
+                title=f"Astronomy: {final_location} ({date_str})",
+                border_style="magenta",
+                expand=False,
+            )
+        )
 
     except AtmosAPIError as e:
         console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
 
+
 @main.command()
 @click.argument("location_arg", required=False)
 @click.option("-L", "--location", help="City or location name")
-@click.option("-a", "--activity", required=True, help="Activity (hiking, bbq, beach, stargazing)")
+@click.option(
+    "-a", "--activity", required=True, help="Activity (hiking, bbq, beach, stargazing)"
+)
 @click.option("-d", "--days", default=10, help="Search range (default: 10 days)")
 def find(location_arg, location, activity, days):
     """
@@ -490,7 +550,7 @@ def find(location_arg, location, activity, days):
 
     \b
     ACTIVITIES:
-      hiking, bbq, beach, stargazing, running, cycling, golf, 
+      hiking, bbq, beach, stargazing, running, cycling, golf,
       sailing, skiing, drone, photography, tennis, camping, fishing, kayaking
 
     \b
@@ -505,24 +565,23 @@ def find(location_arg, location, activity, days):
 
     saved_address = places_manager.get(target)
     final_location = saved_address if saved_address else target
-    
+
     try:
-        console.print(f"[cyan]Searching best day for [bold]{activity}[/bold] in {final_location} (Next {days} days)...[/cyan]")
+        console.print(
+            f"[cyan]Searching best day for [bold]{activity}[/bold] in {final_location} (Next {days} days)...[/cyan]"
+        )
         items = client.get_daily_forecast(final_location, days=days)
-        
+
         scored_days = []
         for item in items:
             score, reasons = SuitabilityEvaluator.evaluate(item, activity)
-            scored_days.append({
-                "date": item.date,
-                "score": score,
-                "reasons": reasons,
-                "item": item
-            })
-            
+            scored_days.append(
+                {"date": item.date, "score": score, "reasons": reasons, "item": item}
+            )
+
         # Sort by Score DESC
         scored_days.sort(key=lambda x: x["score"], reverse=True)
-        
+
         # Display Top 3
         table = Table(title=f"Best Days for {activity.title()}", box=box.SIMPLE_HEAD)
         table.add_column("Rank", style="dim")
@@ -530,23 +589,25 @@ def find(location_arg, location, activity, days):
         table.add_column("Score", justify="center")
         table.add_column("Forecast")
         table.add_column("Notes", style="red")
-        
+
         for i, d in enumerate(scored_days[:5]):
-            score_color = "green" if d["score"] >= 80 else "yellow" if d["score"] >= 50 else "red"
+            score_color = (
+                "green" if d["score"] >= 80 else "yellow" if d["score"] >= 50 else "red"
+            )
             score_str = f"[{score_color}]{d['score']}/100[/{score_color}]"
-            
+
             date_str = format_date(d["date"])
-            
+
             # Forecast summary
             f = d["item"]
             high = f.high_temp.value
             cond = f.description
             summary = f"{high}°F, {cond}"
-            
+
             notes = ", ".join(d["reasons"])
-            
-            table.add_row(str(i+1), date_str, score_str, summary, notes)
-            
+
+            table.add_row(str(i + 1), date_str, score_str, summary, notes)
+
         console.print(table)
 
     except AtmosAPIError as e:
@@ -554,12 +615,15 @@ def find(location_arg, location, activity, days):
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
 
+
 # --- Places Management ---
+
 
 @main.group()
 def places():
     """Manage saved locations (Address Book)."""
     pass
+
 
 @places.command("add")
 @click.argument("name")
@@ -568,6 +632,7 @@ def places_add(name, address):
     """Save a location."""
     places_manager.add(name, address)
     console.print(f"[green]Added:[/green] {name} -> {address}")
+
 
 @places.command("list")
 def places_list():
@@ -585,6 +650,7 @@ def places_list():
         table.add_row(name, address)
 
     console.print(table)
+
 
 @places.command("remove")
 @click.argument("name")
