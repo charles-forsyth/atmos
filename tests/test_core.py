@@ -12,6 +12,7 @@ def test_get_coords(mocker):
     mock_get.return_value = mock_response
 
     client = AtmosClient()
+    client.api_key = "dummy"
     lat, lng = client.get_coords("New York")
     assert lat == 40.7128
 

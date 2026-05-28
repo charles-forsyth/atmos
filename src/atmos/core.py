@@ -25,13 +25,14 @@ class AtmosClient:
 
     def __init__(self):
         self.api_key = settings.GOOGLE_MAPS_API_KEY
+        self.base_url = "https://weather.googleapis.com/v1"
+        self.geocode_url = "https://maps.googleapis.com/maps/api/geocode/json"
+
+    def _check_api_key(self):
         if not self.api_key:
             raise ValueError(
                 "GOOGLE_MAPS_API_KEY is not set. Please check your configuration."
             )
-
-        self.base_url = "https://weather.googleapis.com/v1"
-        self.geocode_url = "https://maps.googleapis.com/maps/api/geocode/json"
 
     def _handle_error(self, resp: requests.Response):
         """Parses API error responses into AtmosAPIError."""
@@ -55,6 +56,7 @@ class AtmosClient:
 
     def get_coords(self, location: str) -> Tuple[float, float]:
         """Resolves a string location to (lat, lng)."""
+        self._check_api_key()
         params = {"address": location, "key": self.api_key}
         resp = requests.get(self.geocode_url, params=params)
 

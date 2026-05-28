@@ -7,6 +7,8 @@ from datetime import datetime
 def test_default_behavior_no_args(mocker):
     # Mock the hourly forecast call which should be triggered by default
     mock_get = mocker.patch("atmos.core.client.get_hourly_forecast")
+    # Patch places_manager to isolate test from local configs
+    mocker.patch("atmos.places.places_manager.get", return_value=None)
 
     mock_get.return_value = [
         HourlyForecastItem(
