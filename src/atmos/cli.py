@@ -5,7 +5,7 @@ from rich.table import Table
 from rich.text import Text
 from rich import box
 from datetime import datetime
-import asciichartpy
+import asciichartpy  # type: ignore[import-untyped]
 
 from atmos.core import client
 from atmos.places import places_manager
