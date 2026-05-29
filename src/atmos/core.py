@@ -59,12 +59,21 @@ class AtmosClient:
         """Resolves a string location to (lat, lng)."""
         self._check_api_key()
         params = {"address": location, "key": self.api_key}
-        resp = requests.get(self.geocode_url, params=params)
+        resp = requests.get(self.geocode_url, params=params, timeout=10.0)
 
         if not resp.ok:
             self._handle_error(resp)
 
         data = resp.json()
+        status = data.get("status")
+
+        if status == "ZERO_RESULTS":
+            raise ValueError(f"Location not found: {location}")
+        elif status != "OK" and status is not None:
+            err_msg = data.get("error_message", "Unknown geocoding error")
+            raise AtmosAPIError(
+                200, f"Geocoding API Error ({status}): {err_msg}", json.dumps(data)
+            )
 
         if not data.get("results"):
             raise ValueError(f"Location not found: {location}")
@@ -140,7 +149,7 @@ class AtmosClient:
             "unitsSystem": "IMPERIAL",
         }
 
-        resp = requests.get(url, params=params)
+        resp = requests.get(url, params=params, timeout=10.0)
 
         if not resp.ok:
             self._handle_error(resp)
@@ -186,7 +195,7 @@ class AtmosClient:
             "pageSize": fetch_hours,
         }
 
-        resp = requests.get(url, params=params)
+        resp = requests.get(url, params=params, timeout=10.0)
         if not resp.ok:
             self._handle_error(resp)
 
@@ -236,7 +245,7 @@ class AtmosClient:
             "pageSize": min(hours, 24),
         }
 
-        resp = requests.get(url, params=params)
+        resp = requests.get(url, params=params, timeout=10.0)
         if not resp.ok:
             self._handle_error(resp)
 
@@ -285,7 +294,7 @@ class AtmosClient:
             "unitsSystem": "IMPERIAL",
         }
 
-        resp = requests.get(url, params=params)
+        resp = requests.get(url, params=params, timeout=10.0)
         if not resp.ok:
             self._handle_error(resp)
 
@@ -400,7 +409,7 @@ class AtmosClient:
             "key": self.api_key,
         }
 
-        resp = requests.get(url, params=params)
+        resp = requests.get(url, params=params, timeout=10.0)
         if not resp.ok:
             self._handle_error(resp)
 
@@ -513,7 +522,7 @@ class AtmosClient:
             "pageSize": min(hours, 24),
         }
 
-        resp = requests.get(url, params=params)
+        resp = requests.get(url, params=params, timeout=10.0)
         if not resp.ok:
             self._handle_error(resp)
 
@@ -555,7 +564,9 @@ class AtmosClient:
             "key": self.api_key,
         }
         resp = requests.get(
-            "https://maps.googleapis.com/maps/api/directions/json", params=params
+            "https://maps.googleapis.com/maps/api/directions/json",
+            params=params,
+            timeout=10.0,
         )
         if not resp.ok:
             self._handle_error(resp)
