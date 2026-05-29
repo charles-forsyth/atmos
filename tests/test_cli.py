@@ -216,3 +216,66 @@ def test_make_dashboard_layout():
     assert layout.get("forecast") is not None
     assert layout.get("hourly") is not None
     assert layout.get("activities") is not None
+
+
+def test_cli_compare_current(mocker):
+    mocker.patch(
+        "atmos.core.client.get_current_conditions", return_value=create_dummy_weather()
+    )
+    runner = CliRunner()
+    result = runner.invoke(main, ["compare", "New York", "London"])
+    assert result.exit_code == 0
+    assert "Atmos Weather Comparison" in result.output
+    assert "New" in result.output
+    assert "London" in result.output
+
+
+def test_cli_compare_forecast(mocker):
+    mock_item = DailyForecastItem(
+        date=datetime(2023, 10, 6),
+        low_temp=Temperature(value=10.0),
+        high_temp=Temperature(value=20.0),
+        description="Sunny",
+        precipitation_probability=15.0,
+    )
+    mocker.patch("atmos.core.client.get_daily_forecast", return_value=[mock_item])
+    runner = CliRunner()
+    result = runner.invoke(main, ["compare", "New York", "London", "--forecast"])
+    assert result.exit_code == 0
+    assert "Weather Forecast Comparison" in result.output
+    assert "New" in result.output
+    assert "London" in result.output
+
+
+def test_cli_wardrobe(mocker):
+    mocker.patch(
+        "atmos.core.client.get_current_conditions", return_value=create_dummy_weather()
+    )
+    runner = CliRunner()
+    result = runner.invoke(main, ["wardrobe", "-L", "New York"])
+    assert result.exit_code == 0
+    assert "Smart Wardrobe Advisory: New York" in result.output
+    assert "Clothing Layers" in result.output
+
+
+def test_cli_notify(mocker):
+    from atmos.models import WeatherAlert
+
+    alert_mock = WeatherAlert(
+        headline="Flash Flood Warning",
+        description="Dangerous flood active",
+        type="Flood",
+        severity="Severe",
+        urgency="Immediate",
+        certainty="Observed",
+        source="NWS",
+    )
+    mocker.patch("atmos.core.client.get_public_alerts", return_value=[alert_mock])
+    mocker.patch("shutil.which", return_value="notify-send")
+    mock_run = mocker.patch("subprocess.run")
+    runner = CliRunner()
+    result = runner.invoke(main, ["notify", "-L", "New York", "--system"])
+    assert result.exit_code == 0
+    assert "Severe Weather Alerts for New York" in result.output
+    assert "Flash Flood Warning" in result.output
+    mock_run.assert_called()
