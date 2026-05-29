@@ -271,6 +271,7 @@ def test_cli_notify(mocker):
         source="NWS",
     )
     mocker.patch("atmos.core.client.get_public_alerts", return_value=[alert_mock])
+    mocker.patch("shutil.which", return_value="notify-send")
     mock_run = mocker.patch("subprocess.run")
     runner = CliRunner()
     result = runner.invoke(main, ["notify", "-L", "New York", "--system"])
