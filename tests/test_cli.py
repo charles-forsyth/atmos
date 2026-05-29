@@ -200,3 +200,19 @@ def test_cli_route(mocker):
     assert "Partly" in result.output
     assert "Cloudy" in result.output
     mock_route.assert_called_once_with("New York", "Boston")
+
+
+def test_make_dashboard_layout():
+    from atmos.cli import make_dashboard_layout
+
+    layout = make_dashboard_layout()
+    assert layout.get("header") is not None
+    assert layout.get("footer") is not None
+    assert layout.get("main") is not None
+    assert layout.get("left") is not None
+    assert layout.get("right") is not None
+    assert layout.get("current") is not None
+    assert layout.get("stargazing") is not None
+    assert layout.get("forecast") is not None
+    assert layout.get("hourly") is not None
+    assert layout.get("activities") is not None
