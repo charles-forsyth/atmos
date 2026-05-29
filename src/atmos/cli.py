@@ -4,8 +4,12 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich import box
+from rich.layout import Layout
 from datetime import datetime
 import asciichartpy  # type: ignore[import-untyped]
+import re
+import subprocess
+import time
 
 from atmos.core import client
 from atmos.places import places_manager
@@ -30,6 +34,61 @@ def format_time_ampm(dt: datetime) -> str:
 def format_date(dt: datetime) -> str:
     local_dt = dt.astimezone()
     return local_dt.strftime("%a %b %d")
+
+
+def markdown_to_html(md_text: str) -> str:
+    """Converts a basic markdown string to clean, readable HTML."""
+    lines = md_text.splitlines()
+    html_lines = []
+    in_list = False
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if in_list:
+                html_lines.append("</ul>")
+                in_list = False
+            html_lines.append("<br>")
+            continue
+
+        # Headers
+        if stripped.startswith("### "):
+            if in_list:
+                html_lines.append("</ul>")
+                in_list = False
+            html_lines.append(f"<h3>{stripped[4:]}</h3>")
+        elif stripped.startswith("## "):
+            if in_list:
+                html_lines.append("</ul>")
+                in_list = False
+            html_lines.append(f"<h2>{stripped[3:]}</h2>")
+        elif stripped.startswith("# "):
+            if in_list:
+                html_lines.append("</ul>")
+                in_list = False
+            html_lines.append(f"<h1>{stripped[2:]}</h1>")
+        # List items
+        elif stripped.startswith("* ") or stripped.startswith("- "):
+            if not in_list:
+                html_lines.append("<ul>")
+                in_list = True
+            html_lines.append(f"<li>{stripped[2:]}</li>")
+        else:
+            if in_list:
+                html_lines.append("</ul>")
+                in_list = False
+            html_content = stripped
+            html_lines.append(f"<p>{html_content}</p>")
+
+    if in_list:
+        html_lines.append("</ul>")
+
+    html_content = "\n".join(html_lines)
+    # Bold replacements
+    html_content = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", html_content)
+    # Italics replacements
+    html_content = re.sub(r"\*(.*?)\*", r"<em>\1</em>", html_content)
+    return html_content
 
 
 class DefaultGroup(click.Group):
@@ -614,6 +673,549 @@ def find(location_arg, location, activity, days):
         console.print(f"[bold red]API Error:[/bold red] {e.message}")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
+
+
+@main.command()
+@click.argument("location_arg", required=False)
+@click.option("-L", "--location", help="City or location name")
+@click.option("--email", is_flag=True, help="Send briefing to the user's email")
+@click.option("--say", is_flag=True, help="Speak the briefing summary")
+def brief(location_arg, location, email, say):
+    """
+    Generate an AI-powered personalized weather briefing.
+
+    Uses Gemini to analyze current, forecast, alerts, and stargazing data.
+    """
+    target = location_arg or location or "Home"
+    saved_address = places_manager.get(target)
+    final_location = saved_address if saved_address else target
+
+    try:
+        console.print(f"[cyan]Gathering weather data for {final_location}...[/cyan]")
+
+        # 1. Fetch current conditions
+        try:
+            current_cond = client.get_current_conditions(final_location)
+            current_dict = {
+                "temperature": current_cond.temperature.value,
+                "feels_like": current_cond.feels_like.value,
+                "humidity": current_cond.humidity,
+                "description": current_cond.description,
+                "wind": f"{current_cond.wind.speed} {current_cond.wind.direction}",
+                "uv_index": current_cond.uv_index,
+                "visibility": current_cond.visibility,
+                "pressure": current_cond.pressure,
+            }
+        except Exception as e:
+            current_dict = {"error": str(e)}
+
+        # 2. Fetch daily forecast
+        try:
+            forecast_items = client.get_daily_forecast(final_location, days=5)
+            forecast_list = []
+            for item in forecast_items:
+                forecast_list.append(
+                    {
+                        "date": format_date(item.date),
+                        "high": item.high_temp.value,
+                        "low": item.low_temp.value,
+                        "description": item.description,
+                        "precip_prob": item.precipitation_probability,
+                        "sunrise": format_time_ampm(item.sunrise)
+                        if item.sunrise
+                        else "-",
+                        "sunset": format_time_ampm(item.sunset) if item.sunset else "-",
+                        "moon_phase": item.moon_phase.replace("_", " ").title(),
+                    }
+                )
+        except Exception:
+            forecast_list = []
+
+        # 3. Fetch active public alerts
+        try:
+            alerts = client.get_public_alerts(final_location)
+            alerts_list = []
+            for a in alerts:
+                alerts_list.append(
+                    {
+                        "headline": a.headline,
+                        "severity": a.severity,
+                        "urgency": a.urgency,
+                        "type": a.type,
+                        "description": a.description,
+                    }
+                )
+        except Exception:
+            alerts_list = []
+
+        # 4. Activity suitability
+        suitability = {}
+        activities = ["hiking", "bbq", "beach", "stargazing", "running", "camping"]
+        if forecast_items:
+            today_item = forecast_items[0]
+            for act in activities:
+                score, reasons = SuitabilityEvaluator.evaluate(today_item, act)
+                suitability[act] = {"score": score, "reasons": reasons}
+
+        # 5. Stargazing report
+        stargazing_report = "N/A"
+        if forecast_items:
+            today_item = forecast_items[0]
+            stargazing_report = get_stargazing_conditions(
+                today_item.cloud_cover or 0, today_item.moon_phase or "Unknown"
+            )
+
+        context_data = {
+            "location": final_location,
+            "generated_at": datetime.now().isoformat(),
+            "current_conditions": current_dict,
+            "forecast": forecast_list,
+            "alerts": alerts_list,
+            "stargazing": stargazing_report,
+            "today_activities_scores": suitability,
+        }
+
+        console.print(
+            "[cyan]Generating personalized AI briefing via gemini-3.1-pro...[/cyan]"
+        )
+        briefing = client.generate_ai_briefing(context_data)
+
+        # Display result beautifully
+        from rich.markdown import Markdown
+
+        panel = Panel(
+            Markdown(briefing),
+            title=f"Atmos Intelligent Weather Briefing: {final_location}",
+            border_style="magenta",
+            padding=(1, 2),
+        )
+        console.print(panel)
+
+        # Handle Ecosystem automations (Email & Say)
+        if email:
+            if click.confirm(
+                "Do you want to email this briefing to Charles Forsyth?", default=True
+            ):
+                html_body = f"""<html>
+<head>
+<style>
+body {{ font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }}
+h1 {{ color: #2c3e50; border-bottom: 2px solid #ecf0f1; padding-bottom: 10px; }}
+h2 {{ color: #2980b9; }}
+ul {{ padding-left: 20px; }}
+li {{ margin-bottom: 5px; }}
+.footer {{ margin-top: 40px; font-size: 0.8em; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 10px; }}
+</style>
+</head>
+<body>
+<h1>Atmos Intelligent Weather Briefing</h1>
+<p><strong>Location:</strong> {final_location}</p>
+<p><strong>Date:</strong> {datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")}</p>
+<hr/>
+{markdown_to_html(briefing)}
+<div class="footer">
+Generated by Atmos Professional Weather Assistant.
+</div>
+</body>
+</html>"""
+                html_path = "/tmp/atmos_brief.html"
+                with open(html_path, "w") as f:
+                    f.write(html_body)
+
+                cmd = [
+                    "python3",
+                    "/home/chuck/Scripts/send_email.py",
+                    "--recipients",
+                    "forsythc@ucr.edu",
+                    "--subject",
+                    f"Atmos Daily Briefing: {final_location}",
+                    "--input-file",
+                    html_path,
+                    "--cc",
+                    "forsythc@ucr.edu",
+                ]
+                console.print(f"[cyan]Executing email command: {' '.join(cmd)}[/cyan]")
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                if res.returncode == 0:
+                    console.print("[green]✓ Email briefing sent successfully.[/green]")
+                else:
+                    console.print(
+                        f"[bold red]Failed to send email briefing:[/bold red] {res.stderr}"
+                    )
+
+        if say:
+            clean_text = briefing
+            # strip rich styling blocks
+            clean_text = re.sub(r"\[\/?[a-zA-Z=#\s]+\]", "", clean_text)
+            # strip markdown formatting
+            clean_text = (
+                clean_text.replace("**", "")
+                .replace("*", "")
+                .replace("#", "")
+                .replace("`", "")
+            )
+            clean_text = re.sub(r"\n+", " ", clean_text).strip()
+            # Truncate to a reasonable amount if too long
+            if len(clean_text) > 800:
+                clean_text = clean_text[:797] + "..."
+
+            if click.confirm(
+                "Do you want Atmos to read the briefing summary aloud?", default=True
+            ):
+                cmd = ["python3", "/home/chuck/bin/say.py", "-t", clean_text]
+                console.print("[cyan]Speaking summary...[/cyan]")
+                subprocess.run(cmd)
+
+    except AtmosAPIError as e:
+        console.print(f"[bold red]API Error:[/bold red] {e.message}")
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+
+
+@main.command()
+@click.option("-S", "--start", required=True, help="Starting address or location")
+@click.option("-E", "--end", required=True, help="Destination address or location")
+def route(start, end):
+    """
+    Plan weather along a driving route.
+
+    Samples forecasts at key driving intervals to warn of conditions ahead.
+    """
+    try:
+        console.print(
+            f"[cyan]Calculating route from [bold]{start}[/bold] to [bold]{end}[/bold] and fetching weather waypoints...[/cyan]"
+        )
+        route_weather = client.get_route_weather(start, end)
+
+        table = Table(title=f"Route Weather: {start} ➔ {end}", box=box.ROUNDED)
+        table.add_column("ETA", style="bold magenta")
+        table.add_column("Location / Step", style="white")
+        table.add_column("Distance / Instruction", style="dim")
+        table.add_column("Temp", style="bold cyan")
+        table.add_column("Condition", style="yellow")
+        table.add_column("Wind", style="green")
+        table.add_column("Precip", style="blue")
+
+        for item in route_weather:
+            wp = item["waypoint"]
+            eta = item["eta"]
+            weather = item["weather"]
+            error = item.get("error")
+
+            eta_str = format_time_ampm(eta)
+            loc_str = wp["address"]
+            if len(loc_str) > 40:
+                loc_str = loc_str[:37] + "..."
+
+            dist_instr = f"{wp['distance_text']} ({wp['instruction']})"
+
+            if error:
+                table.add_row(
+                    eta_str,
+                    loc_str,
+                    dist_instr,
+                    "[red]Error[/red]",
+                    f"[red]{error}[/red]",
+                    "-",
+                    "-",
+                )
+            elif not weather:
+                table.add_row(
+                    eta_str,
+                    loc_str,
+                    dist_instr,
+                    "[yellow]N/A[/yellow]",
+                    "[dim]No forecast available[/dim]",
+                    "-",
+                    "-",
+                )
+            else:
+                unit_label = (
+                    "°F"
+                    if "FAHRENHEIT" in (weather.temperature.units or "").upper()
+                    else "°C"
+                )
+                temp_str = f"{weather.temperature.value}{unit_label}"
+                feels_str = f"({weather.feels_like.value}°)"
+
+                wind_str = f"{weather.wind.speed} {weather.wind.direction}"
+                precip_str = f"{weather.precipitation.probability}%"
+                if weather.precipitation.rate and weather.precipitation.rate > 0:
+                    precip_str += f' ({weather.precipitation.rate}")'
+
+                table.add_row(
+                    eta_str,
+                    loc_str,
+                    dist_instr,
+                    f"{temp_str} [dim]{feels_str}[/dim]",
+                    weather.description,
+                    wind_str,
+                    precip_str,
+                )
+
+        console.print(table)
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+
+
+def make_dashboard_layout() -> Layout:
+    layout = Layout()
+    layout.split_column(
+        Layout(name="header", size=3),
+        Layout(name="main", ratio=1),
+        Layout(name="footer", size=3),
+    )
+    layout["main"].split_row(
+        Layout(name="left", ratio=1), Layout(name="right", ratio=1)
+    )
+    layout["left"].split_column(
+        Layout(name="current", ratio=1), Layout(name="stargazing", size=7)
+    )
+    layout["right"].split_column(
+        Layout(name="forecast", ratio=2), Layout(name="activities", ratio=1)
+    )
+    return layout
+
+
+@main.command()
+@click.argument("location_arg", required=False)
+@click.option("-L", "--location", help="City or location name")
+@click.option("--refresh", default=60, help="Refresh interval in seconds (default: 60)")
+def dashboard(location_arg, location, refresh):
+    """
+    Launch the live weather dashboard terminal interface.
+
+    Refreshes automatically at a configured interval.
+    """
+    target = location_arg or location or "Home"
+    saved_address = places_manager.get(target)
+    final_location = saved_address if saved_address else target
+
+    try:
+        # Initial draw
+        with console.status(
+            f"[cyan]Initializing dashboard for {final_location}...[/cyan]"
+        ):
+            layout = make_dashboard_layout()
+
+            # Helper to generate updated layout components
+            def update_dashboard():
+                current_err = "No data"
+                forecast_err = "No data"
+                current_cond = None
+                daily_forecast = []
+
+                # 1. Fetch data
+                try:
+                    current_cond = client.get_current_conditions(final_location)
+                except Exception as e:
+                    current_err = str(e)
+
+                try:
+                    daily_forecast = client.get_daily_forecast(final_location, days=5)
+                except Exception as e:
+                    forecast_err = str(e)
+
+                # Header
+                header_text = Text(
+                    f"ATMOS WEATHER STATION — {final_location.upper()}",
+                    style="bold cyan",
+                )
+                layout["header"].update(
+                    Panel(
+                        header_text,
+                        border_style="cyan",
+                        box=box.ROUNDED,
+                        align="center",
+                    )
+                )
+
+                # Current Conditions Panel
+                if current_cond:
+                    unit_label = (
+                        "°F"
+                        if "FAHRENHEIT"
+                        in (current_cond.temperature.units or "").upper()
+                        else "°C"
+                    )
+
+                    grid = Table.grid(expand=True, padding=(0, 1))
+                    grid.add_column(style="cyan bold", width=15)
+                    grid.add_column()
+
+                    grid.add_row(
+                        "Temperature:",
+                        f"[bold white]{current_cond.temperature.value}{unit_label}[/bold white] (Feels like {current_cond.feels_like.value}{unit_label})",
+                    )
+                    grid.add_row("Condition:", current_cond.description)
+                    grid.add_row(
+                        "Wind speed:",
+                        f"{current_cond.wind.speed} {current_cond.wind.direction}",
+                    )
+                    grid.add_row("Humidity:", f"{current_cond.humidity}%")
+                    grid.add_row("UV Index:", str(current_cond.uv_index))
+                    grid.add_row("Visibility:", f"{current_cond.visibility} miles")
+                    grid.add_row("Barometer:", f"{current_cond.pressure} hPa")
+
+                    layout["left"]["current"].update(
+                        Panel(
+                            grid,
+                            title="[bold]Current Conditions[/bold]",
+                            border_style="cyan",
+                        )
+                    )
+                else:
+                    layout["left"]["current"].update(
+                        Panel(
+                            f"[red]Error loading current conditions:\n{current_err}[/red]",
+                            title="Current Conditions",
+                            border_style="red",
+                        )
+                    )
+
+                # Stargazing / Astronomy Panel
+                if daily_forecast:
+                    today = daily_forecast[0]
+                    stargazing_report = get_stargazing_conditions(
+                        today.cloud_cover or 0, today.moon_phase or "Unknown"
+                    )
+
+                    grid = Table.grid(expand=True, padding=(0, 1))
+                    grid.add_column(style="magenta bold", width=15)
+                    grid.add_column()
+
+                    grid.add_row(
+                        "Moon Phase:", today.moon_phase.replace("_", " ").title()
+                    )
+                    grid.add_row(
+                        "Sunrise / Set:",
+                        f"☀ {format_time_ampm(today.sunrise) if today.sunrise else '-'}  ↓ {format_time_ampm(today.sunset) if today.sunset else '-'}",
+                    )
+                    grid.add_row(
+                        "Moonrise / Set:",
+                        f"☾ {format_time_ampm(today.moonrise) if today.moonrise else '-'}  ↓ {format_time_ampm(today.moonset) if today.moonset else '-'}",
+                    )
+                    grid.add_row("Cloud Cover:", f"{today.cloud_cover}%")
+                    grid.add_row(
+                        "Outlook:",
+                        f"[italic magenta]{stargazing_report}[/italic magenta]",
+                    )
+
+                    layout["left"]["stargazing"].update(
+                        Panel(
+                            grid,
+                            title="[bold]Astronomy & Stargazing[/bold]",
+                            border_style="magenta",
+                        )
+                    )
+                else:
+                    layout["left"]["stargazing"].update(
+                        Panel(
+                            "[yellow]Waiting for forecast...[/yellow]",
+                            title="Astronomy & Stargazing",
+                            border_style="magenta",
+                        )
+                    )
+
+                # Forecast Table Panel
+                if daily_forecast:
+                    table = Table(expand=True, box=box.SIMPLE_HEAD)
+                    table.add_column("Date", style="dim")
+                    table.add_column("High/Low", style="bold cyan")
+                    table.add_column("Condition", style="white")
+                    table.add_column("Precip %", style="blue")
+
+                    for item in daily_forecast[:4]:
+                        unit_label = (
+                            "°F"
+                            if "FAHRENHEIT" in (item.high_temp.units or "").upper()
+                            else "°C"
+                        )
+                        temp_str = f"{item.high_temp.value}{unit_label} / {item.low_temp.value}{unit_label}"
+                        table.add_row(
+                            format_date(item.date),
+                            temp_str,
+                            item.description,
+                            f"{item.precipitation_probability}%",
+                        )
+                    layout["right"]["forecast"].update(
+                        Panel(
+                            table,
+                            title="[bold]4-Day Outlook[/bold]",
+                            border_style="green",
+                        )
+                    )
+                else:
+                    layout["right"]["forecast"].update(
+                        Panel(
+                            f"[red]Error loading forecast:\n{forecast_err}[/red]",
+                            title="Outlook",
+                            border_style="red",
+                        )
+                    )
+
+                # Today's Activity Scores Panel
+                if daily_forecast:
+                    today = daily_forecast[0]
+                    activities = ["hiking", "bbq", "beach", "stargazing", "running"]
+                    grid = Table.grid(expand=True, padding=(0, 1))
+                    grid.add_column(style="yellow bold", width=15)
+                    grid.add_column(justify="center", width=10)
+                    grid.add_column()
+
+                    for act in activities:
+                        score, reasons = SuitabilityEvaluator.evaluate(today, act)
+                        score_color = (
+                            "green"
+                            if score >= 80
+                            else "yellow"
+                            if score >= 50
+                            else "red"
+                        )
+                        score_str = f"[{score_color}]{score}/100[/{score_color}]"
+                        grid.add_row(act.title(), score_str, ", ".join(reasons[:1]))
+
+                    layout["right"]["activities"].update(
+                        Panel(
+                            grid,
+                            title="[bold]Activity Suitability[/bold]",
+                            border_style="yellow",
+                        )
+                    )
+                else:
+                    layout["right"]["activities"].update(
+                        Panel(
+                            "[yellow]Waiting for activities...[/yellow]",
+                            title="Activity Suitability",
+                            border_style="yellow",
+                        )
+                    )
+
+                # Footer
+                footer_text = Text(
+                    f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  |  Auto-refreshes every {refresh}s  |  Press Ctrl+C to exit",
+                    style="dim italic",
+                )
+                layout["footer"].update(
+                    Panel(
+                        footer_text, border_style="dim", box=box.ROUNDED, align="center"
+                    )
+                )
+
+            update_dashboard()
+            from rich.live import Live
+
+            with Live(layout, screen=True, refresh_per_second=1) as live:
+                while True:
+                    time.sleep(1)
+                    if int(time.time()) % refresh == 0:
+                        update_dashboard()
+                        live.update(layout)
+
+    except KeyboardInterrupt:
+        console.print("[yellow]Dashboard closed.[/yellow]")
+    except Exception as e:
+        console.print(f"[bold red]Dashboard Error:[/bold red] {e}")
 
 
 # --- Places Management ---

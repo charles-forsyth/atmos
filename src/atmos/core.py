@@ -1,4 +1,5 @@
 import requests
+import json
 from typing import Tuple, List, Dict, Any
 from datetime import datetime
 from atmos.config import settings
@@ -445,6 +446,228 @@ class AtmosClient:
             )
 
         return items
+
+    def generate_ai_briefing(self, context_data: Dict[str, Any]) -> str:
+        """Generates a natural-language weather briefing using Google Gemini API."""
+        api_key = settings.GEMINI_API_KEY
+        if not api_key:
+            import os
+
+            api_key = (
+                os.environ.get("GEMINI_API_KEY")
+                or "AIzaSyDgnBTB9UI-qbtRVzuJIQiwV0g_wsin8iQ"
+            )
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro:generateContent?key={api_key}"
+
+        prompt = (
+            "You are Atmos Intelligence, a professional weather advisor.\n"
+            "Below is a JSON dump of the weather conditions, forecast, severe alerts, and activity scores for a location.\n"
+            "Please write a beautifully formatted, natural, engaging, and hyper-personalized daily weather briefing.\n"
+            "Start with a warm greeting, summarize the current conditions, and highlights of the forecast.\n"
+            "Explicitly call out any active severe alerts (with urgency/warnings), exceptionally high or low outdoor activity scores,\n"
+            "and night-sky stargazing conditions. Suggest appropriate clothing or precautions.\n"
+            "Keep the tone professional, helpful, and concise. Use clean markdown formatting (bullet points, bold highlights) suitable for terminal display.\n\n"
+            f"WEATHER DATA CONTEXT:\n{json.dumps(context_data, indent=2, default=str)}"
+        )
+
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.3,
+                "topP": 0.95,
+                "maxOutputTokens": 1024,
+            },
+        }
+
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            if not resp.ok:
+                return f"[yellow]Failed to generate briefing from Gemini API (HTTP {resp.status_code}): {resp.text}[/yellow]"
+
+            resp_data = resp.json()
+            candidates = resp_data.get("candidates", [])
+            if candidates:
+                content = candidates[0].get("content", {})
+                parts = content.get("parts", [])
+                if parts:
+                    return parts[0].get("text", "No text generated.")
+            return "[yellow]No briefing response candidates generated from Gemini.[/yellow]"
+        except Exception as e:
+            return f"[red]Error calling Gemini API: {e}[/red]"
+
+    def get_hourly_forecast_by_coords(
+        self, lat: float, lng: float, hours: int = 24
+    ) -> List[HourlyForecastItem]:
+        """Fetches hourly forecast using exact lat/lng coordinates."""
+        self._check_api_key()
+        url = f"{self.base_url}/forecast/hours:lookup"
+
+        params = {
+            "location.latitude": lat,
+            "location.longitude": lng,
+            "hours": min(hours, 240),
+            "key": self.api_key,
+            "unitsSystem": "IMPERIAL",
+            "pageSize": min(hours, 24),
+        }
+
+        resp = requests.get(url, params=params)
+        if not resp.ok:
+            self._handle_error(resp)
+
+        data = resp.json()
+        entries = data.get("forecastHours", [])
+
+        items = []
+        for entry in entries:
+            interval = entry.get("interval", {})
+            ts_str = interval.get("startTime")
+            if not ts_str:
+                continue
+
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            temp, feels_like, wind, precip, desc, humidity, pressure = (
+                self._parse_condition(entry)
+            )
+
+            items.append(
+                HourlyForecastItem(
+                    timestamp=ts,
+                    temperature=temp,
+                    feels_like=feels_like,
+                    humidity=humidity,
+                    description=desc,
+                    wind=wind,
+                    precipitation=precip,
+                    pressure=pressure,
+                )
+            )
+        return items
+
+    def get_route_directions(self, start: str, end: str) -> Dict[str, Any]:
+        """Queries Google Directions API to fetch route details."""
+        self._check_api_key()
+        params = {
+            "origin": start,
+            "destination": end,
+            "key": self.api_key,
+        }
+        resp = requests.get(
+            "https://maps.googleapis.com/maps/api/directions/json", params=params
+        )
+        if not resp.ok:
+            self._handle_error(resp)
+        return resp.json()
+
+    def get_route_weather(self, start: str, end: str) -> List[Dict[str, Any]]:
+        """Calculates waypoints along a driving route and fetches weather forecasts at their estimated arrival times (ETAs)."""
+        data = self.get_route_directions(start, end)
+        routes = data.get("routes", [])
+        if not routes:
+            raise ValueError(f"No routes found between {start} and {end}.")
+
+        legs = routes[0].get("legs", [])
+        if not legs:
+            raise ValueError("No legs found in route.")
+
+        leg = legs[0]
+        start_address = leg.get("start_address", start)
+        end_address = leg.get("end_address", end)
+        steps = leg.get("steps", [])
+
+        waypoints = []
+        # Add the starting waypoint
+        waypoints.append(
+            {
+                "lat": leg["start_location"]["lat"],
+                "lng": leg["start_location"]["lng"],
+                "address": start_address,
+                "instruction": "Departure",
+                "elapsed_seconds": 0,
+                "distance_text": "0.0 mi",
+            }
+        )
+
+        current_elapsed = 0
+        last_sampled_elapsed = 0
+        # Sample waypoints every 2 hours of driving time (7200 seconds)
+        sample_interval = 7200
+
+        for step in steps:
+            step_duration = step.get("duration", {}).get("value", 0)
+            current_elapsed += step_duration
+
+            if current_elapsed - last_sampled_elapsed >= sample_interval:
+                waypoints.append(
+                    {
+                        "lat": step["start_location"]["lat"],
+                        "lng": step["start_location"]["lng"],
+                        "address": step.get("html_instructions", "Waypoint")
+                        .replace("<b>", "")
+                        .replace("</b>", "")
+                        .replace('<div style="font-size:0.9em">', " - ")
+                        .replace("</div>", ""),
+                        "instruction": "Driving waypoint",
+                        "elapsed_seconds": current_elapsed,
+                        "distance_text": step.get("distance", {}).get("text", "0.0 mi"),
+                    }
+                )
+                last_sampled_elapsed = current_elapsed
+
+        # Add destination waypoint
+        waypoints.append(
+            {
+                "lat": leg["end_location"]["lat"],
+                "lng": leg["end_location"]["lng"],
+                "address": end_address,
+                "instruction": "Arrival",
+                "elapsed_seconds": current_elapsed,
+                "distance_text": "Arrival",
+            }
+        )
+
+        results = []
+        start_time = datetime.now()
+
+        for wp in waypoints:
+            lat = wp["lat"]
+            lng = wp["lng"]
+            elapsed = wp["elapsed_seconds"]
+
+            from datetime import timedelta
+
+            eta = start_time + timedelta(seconds=elapsed)
+
+            # Determine forecast hours into the future
+            hours_ahead = max(1, round(elapsed / 3600))
+            fetch_hours = max(24, hours_ahead + 4)
+
+            try:
+                forecast_items = self.get_hourly_forecast_by_coords(
+                    lat, lng, hours=fetch_hours
+                )
+
+                # Match closest forecast item to the ETA
+                target_item = None
+                min_diff = None
+                for item in forecast_items:
+                    from datetime import timezone
+
+                    eta_utc = eta.astimezone(timezone.utc)
+                    diff = abs((item.timestamp - eta_utc).total_seconds())
+                    if min_diff is None or diff < min_diff:
+                        min_diff = diff
+                        target_item = item
+
+                results.append({"waypoint": wp, "eta": eta, "weather": target_item})
+            except Exception as e:
+                results.append(
+                    {"waypoint": wp, "eta": eta, "weather": None, "error": str(e)}
+                )
+
+        return results
 
 
 # Global client instance
