@@ -1020,13 +1020,13 @@ def dashboard(location_arg, location, refresh):
                 header_text = Text(
                     f"ATMOS WEATHER STATION — {final_location.upper()}",
                     style="bold cyan",
+                    justify="center",
                 )
                 layout["header"].update(
                     Panel(
                         header_text,
                         border_style="cyan",
                         box=box.ROUNDED,
-                        align="center",
                     )
                 )
 
