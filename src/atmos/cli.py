@@ -16,6 +16,7 @@ from atmos.places import places_manager
 from atmos.utils import get_stargazing_conditions
 from atmos.evaluator import SuitabilityEvaluator
 from atmos.exceptions import AtmosAPIError
+from atmos.wardrobe import WardrobeAdviser
 
 console = Console()
 
@@ -1264,6 +1265,468 @@ def dashboard(location_arg, location, refresh):
         console.print("[yellow]Dashboard closed.[/yellow]")
     except Exception as e:
         console.print(f"[bold red]Dashboard Error:[/bold red] {e}")
+
+
+def to_fahrenheit(temp_val: float, unit: str) -> float:
+    """Safely convert a temperature value to Fahrenheit if in Celsius."""
+    if "CELSIUS" in unit.upper() or "C" in unit.upper():
+        return (temp_val * 9 / 5) + 32
+    return temp_val
+
+
+@main.command()
+@click.argument("locations", nargs=-1, required=True)
+@click.option(
+    "--forecast",
+    is_flag=True,
+    help="Compare multi-day forecasts instead of current weather",
+)
+@click.option(
+    "--days",
+    default=3,
+    help="Number of days to compare if --forecast is used (default: 3)",
+)
+def compare(locations, forecast, days):
+    """
+    Compare weather or forecasts for multiple cities side-by-side.
+
+    Provide space-separated cities or saved places.
+
+    \b
+    EXAMPLES:
+      atmos compare "New York" "Los Angeles" "London"
+      atmos compare Home Work --forecast
+    """
+    resolved_locations = []
+    for loc in locations:
+        saved_address = places_manager.get(loc)
+        resolved_locations.append(saved_address if saved_address else loc)
+
+    if not resolved_locations:
+        console.print("[bold red]Error:[/bold red] No locations provided to compare.")
+        return
+
+    try:
+        if forecast:
+            console.print(
+                f"[cyan]Fetching {days}-day forecasts for comparison...[/cyan]"
+            )
+            forecasts = {}
+            for loc in resolved_locations:
+                try:
+                    forecasts[loc] = client.get_daily_forecast(loc, days=days)
+                except Exception as e:
+                    console.print(
+                        f"[bold red]Error fetching forecast for {loc}:[/bold red] {e}"
+                    )
+                    return
+
+            table = Table(
+                title=f"Weather Forecast Comparison ({days} Days)",
+                box=box.ROUNDED,
+                border_style="cyan",
+            )
+            table.add_column("Date", style="bold white", vertical="middle")
+
+            for loc in resolved_locations:
+                # Add 3 columns per location with clean sub-headers
+                table.add_column(
+                    f"[bold cyan]{loc}[/bold cyan]\n[dim]Temp[/dim]",
+                    justify="center",
+                )
+                table.add_column(
+                    f"[bold cyan]{loc}[/bold cyan]\n[dim]Condition[/dim]",
+                    justify="left",
+                )
+                table.add_column(
+                    f"[bold cyan]{loc}[/bold cyan]\n[dim]Precip[/dim]",
+                    justify="center",
+                )
+
+            # Build rows day-by-day
+            for day_idx in range(days):
+                # We need to make sure every location actually has a forecast item for this day
+                valid = True
+                for loc in resolved_locations:
+                    if day_idx >= len(forecasts[loc]):
+                        valid = False
+                        break
+                if not valid:
+                    continue
+
+                # Use the first location's date as the row date
+                first_item = forecasts[resolved_locations[0]][day_idx]
+                date_str = format_date(first_item.date)
+
+                row_vals = [date_str]
+                for loc in resolved_locations:
+                    item = forecasts[loc][day_idx]
+                    unit_label = (
+                        "°F"
+                        if "FAHRENHEIT" in (item.high_temp.units or "").upper()
+                        else "°C"
+                    )
+                    temp_str = f"{item.high_temp.value}{unit_label} / {item.low_temp.value}{unit_label}"
+                    cond_str = item.description or "Unknown"
+                    precip_str = f"{item.precipitation_probability}%"
+                    row_vals.extend([temp_str, cond_str, precip_str])
+
+                table.add_row(*row_vals)
+
+            console.print(table)
+
+        else:
+            console.print(
+                "[cyan]Fetching current weather conditions for comparison...[/cyan]"
+            )
+            current_conditions = []
+            for loc in resolved_locations:
+                try:
+                    weather = client.get_current_conditions(loc)
+                    current_conditions.append((loc, weather))
+                except Exception as e:
+                    console.print(
+                        f"[bold red]Error fetching conditions for {loc}:[/bold red] {e}"
+                    )
+                    return
+
+            table = Table(
+                title="Atmos Weather Comparison",
+                box=box.ROUNDED,
+                border_style="cyan",
+            )
+            table.add_column("Location", style="bold white")
+            table.add_column("Temp", style="bold cyan")
+            table.add_column("Feels Like", style="dim")
+            table.add_column("Condition", style="italic")
+            table.add_column("Wind", style="green")
+            table.add_column("Humidity", style="magenta")
+            table.add_column("UV Index", style="yellow")
+            table.add_column("Precipitation", style="blue")
+
+            for loc, weather in current_conditions:
+                unit_label = (
+                    "°F"
+                    if "FAHRENHEIT" in (weather.temperature.units or "").upper()
+                    else "°C"
+                )
+                temp_str = f"{weather.temperature.value}{unit_label}"
+                feels_str = f"{weather.feels_like.value}{unit_label}"
+                wind_str = f"{weather.wind.speed} {weather.wind.direction}"
+                humidity_str = f"{weather.humidity}%"
+                uv_str = str(weather.uv_index)
+
+                precip_prob = weather.precipitation.probability or 0.0
+                precip_rate = weather.precipitation.rate or 0.0
+                precip_type = weather.precipitation.type or "None"
+                if precip_rate > 0:
+                    precip_str = f'{precip_type} ({precip_prob}%, {precip_rate}")'
+                else:
+                    precip_str = f"{precip_type} ({precip_prob}%)"
+
+                table.add_row(
+                    loc,
+                    temp_str,
+                    feels_str,
+                    weather.description or "Unknown",
+                    wind_str,
+                    humidity_str,
+                    uv_str,
+                    precip_str,
+                )
+
+            console.print(table)
+
+    except AtmosAPIError as e:
+        console.print(f"[bold red]API Error:[/bold red] {e.message}")
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+
+
+@main.command()
+@click.argument("location_arg", required=False)
+@click.option("-L", "--location", help="City or location name")
+def wardrobe(location_arg, location):
+    """
+    Get smart wardrobe & gear recommendations based on weather.
+
+    Analyzes temperature, wind, precipitation, UV index, and humidity
+    to recommend the ideal clothing layers, footwear, and accessories.
+    """
+    target = location_arg or location or "Home"
+    saved_address = places_manager.get(target)
+    final_location = saved_address if saved_address else target
+
+    try:
+        console.print(
+            f"[cyan]Analyzing conditions and prepping wardrobe advisory for {final_location}...[/cyan]"
+        )
+        weather = client.get_current_conditions(final_location)
+
+        # Retrieve values
+        unit = (weather.temperature.units or "").upper()
+        temp_val = weather.temperature.value or 0.0
+        feels_like_val = weather.feels_like.value or 0.0
+
+        # Convert to Fahrenheit for WardrobeAdviser
+        temp_f = to_fahrenheit(temp_val, unit)
+        feels_like_f = to_fahrenheit(feels_like_val, unit)
+
+        precip_prob = weather.precipitation.probability or 0.0
+        precip_rate = weather.precipitation.rate or 0.0
+        uv_index = weather.uv_index or 0
+        wind_speed = weather.wind.speed or 0.0
+        humidity = weather.humidity or 0.0
+        desc = weather.description or ""
+
+        # Fetch expert recommendations from our engine
+        advice = WardrobeAdviser.advise(
+            temp_f=temp_f,
+            feels_like_f=feels_like_f,
+            precip_prob=precip_prob,
+            precip_rate=precip_rate,
+            uv_index=uv_index,
+            wind_speed=wind_speed,
+            humidity=humidity,
+            desc=desc,
+        )
+
+        # Build premium Rich layout for presentation
+        unit_label = "°F" if "FAHRENHEIT" in unit else "°C"
+        subtitle = (
+            f"{temp_val}{unit_label} (Feels like {feels_like_val}{unit_label}) • {desc}"
+        )
+
+        grid = Table.grid(expand=True, padding=(1, 2))
+        grid.add_column(style="bold white", width=18)
+        grid.add_column()
+
+        if advice["clothing"]:
+            grid.add_row(
+                "👕 Clothing Layers:",
+                "\n".join(f"• {item}" for item in advice["clothing"]),
+            )
+        if advice["outerwear"]:
+            grid.add_row(
+                "🧥 Outerwear:",
+                "\n".join(f"• {item}" for item in advice["outerwear"]),
+            )
+        if advice["footwear"]:
+            grid.add_row(
+                "🥾 Footwear:",
+                "\n".join(f"• {item}" for item in advice["footwear"]),
+            )
+        if advice["gear"]:
+            grid.add_row(
+                "🎒 Accessories & Gear:",
+                "\n".join(f"• {item}" for item in advice["gear"]),
+            )
+        if advice["comfort_notes"]:
+            grid.add_row(
+                "💡 Comfort Notes:",
+                "\n".join(f"[dim]{item}[/dim]" for item in advice["comfort_notes"]),
+            )
+        if advice["warnings"]:
+            grid.add_row(
+                "⚠️ Active Alerts:",
+                "\n".join(
+                    f"[bold red]{item}[/bold red]" for item in advice["warnings"]
+                ),
+            )
+
+        console.print(
+            Panel(
+                grid,
+                title=f"Smart Wardrobe Advisory: {final_location}",
+                subtitle=subtitle,
+                border_style="magenta",
+                expand=False,
+            )
+        )
+
+    except AtmosAPIError as e:
+        console.print(f"[bold red]API Error:[/bold red] {e.message}")
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+
+
+@main.command()
+@click.argument("location_arg", required=False)
+@click.option("-L", "--location", help="City or location to check.")
+@click.option(
+    "--system",
+    is_flag=True,
+    help="Trigger desktop notifications if severe alerts are active",
+)
+@click.option(
+    "--email",
+    is_flag=True,
+    help="Send severe alerts summary to Charles Forsyth",
+)
+@click.option(
+    "--yes",
+    "--force",
+    is_flag=True,
+    help="Non-interactive execution (skip confirmation, ideal for cron)",
+)
+def notify(location_arg, location, system, email, yes):
+    """
+    Check active severe weather alerts and trigger notifications/emails.
+
+    Scans saved places or a target location. Perfect for automated cron jobs.
+    """
+    import shutil
+
+    target = location_arg or location
+    targets = []
+
+    if target:
+        saved_address = places_manager.get(target)
+        targets.append((target, saved_address if saved_address else target))
+    else:
+        saved_places = places_manager.list()
+        if not saved_places:
+            saved_address = places_manager.get("Home")
+            targets.append(("Home", saved_address if saved_address else "Home"))
+        else:
+            for name, addr in saved_places.items():
+                targets.append((name, addr))
+
+    all_alerts = {}
+    for name, addr in targets:
+        try:
+            alerts = client.get_public_alerts(addr)
+            if alerts:
+                all_alerts[name] = alerts
+        except Exception as e:
+            console.print(
+                f"[dim yellow]Warning: Failed to fetch alerts for {name} ({addr}): {e}[/dim yellow]"
+            )
+
+    if not all_alerts:
+        console.print(
+            "[green]No active severe weather alerts found for monitored locations.[/green]"
+        )
+        return
+
+    # Print alerts beautifully to console
+    for loc, alerts in all_alerts.items():
+        table = Table(
+            title=f"⚠️ Severe Weather Alerts for {loc}",
+            box=box.HEAVY,
+            border_style="bold red",
+        )
+        table.add_column("Headline", style="bold white")
+        table.add_column("Severity", style="red")
+        table.add_column("Urgency", style="yellow")
+        table.add_column("Description", style="dim")
+
+        for alert in alerts:
+            table.add_row(
+                alert.headline,
+                alert.severity.upper(),
+                alert.urgency.upper(),
+                alert.description[:120] + "..."
+                if len(alert.description) > 120
+                else alert.description,
+            )
+        console.print(table)
+
+    # Trigger system desktop notification
+    if system:
+        if shutil.which("notify-send"):
+            for loc, alerts in all_alerts.items():
+                for alert in alerts:
+                    subprocess.run(
+                        [
+                            "notify-send",
+                            f"Atmos Alert: {loc}",
+                            f"[{alert.severity.upper()}] {alert.headline}",
+                            "-u",
+                            "critical"
+                            if alert.severity.upper() in ["SEVERE", "EXTREME"]
+                            else "normal",
+                        ]
+                    )
+            console.print("[green]✓ Desktop notifications triggered.[/green]")
+        else:
+            console.print(
+                "[yellow]Warning: 'notify-send' is not available on this system.[/yellow]"
+            )
+
+    # Send Email alert
+    if email:
+        if yes or click.confirm(
+            "Do you want to email these severe alerts to Charles Forsyth?",
+            default=True,
+        ):
+            html_lines = [
+                "<html>",
+                "<head>",
+                "<style>",
+                "body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }",
+                "h1 { color: #c0392b; border-bottom: 2px solid #e74c3c; padding-bottom: 10px; }",
+                "h2 { color: #2c3e50; margin-top: 25px; }",
+                ".alert-box { background-color: #fdf2e9; border-left: 5px solid #e67e22; padding: 15px; margin-bottom: 15px; border-radius: 4px; }",
+                ".alert-header { font-weight: bold; color: #d35400; font-size: 1.1em; }",
+                ".alert-meta { font-size: 0.9em; color: #7f8c8d; margin-bottom: 10px; }",
+                ".alert-desc { white-space: pre-line; }",
+                ".footer { margin-top: 40px; font-size: 0.8em; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 10px; }",
+                "</style>",
+                "</head>",
+                "<body>",
+                "<h1>⚠️ Atmos Severe Weather Alert Notification</h1>",
+                f"<p><strong>Generated at:</strong> {datetime.now().strftime('%A, %B %d, %Y at %I:%M %p')}</p>",
+            ]
+
+            for loc, alerts in all_alerts.items():
+                html_lines.append(f"<h2>Location: {loc}</h2>")
+                for alert in alerts:
+                    html_lines.append("<div class='alert-box'>")
+                    html_lines.append(
+                        f"<div class='alert-header'>[{alert.severity.upper()}] {alert.headline}</div>"
+                    )
+                    html_lines.append(
+                        f"<div class='alert-meta'>Type: {alert.type} | Urgency: {alert.urgency} | Certainty: {alert.certainty}</div>"
+                    )
+                    html_lines.append(
+                        f"<div class='alert-desc'>{alert.description}</div>"
+                    )
+                    html_lines.append("</div>")
+
+            html_lines.append(
+                "<div class='footer'>Generated by Atmos Automatic Alert System.</div>"
+            )
+            html_lines.append("</body>")
+            html_lines.append("</html>")
+
+            html_body = "\n".join(html_lines)
+            html_path = "/tmp/atmos_alerts_notify.html"
+            with open(html_path, "w") as f:
+                f.write(html_body)
+
+            cmd = [
+                "python3",
+                "/home/chuck/Scripts/send_email.py",
+                "--recipients",
+                "forsythc@ucr.edu",
+                "--subject",
+                f"⚠️ Atmos Weather ALERT: {', '.join(all_alerts.keys())}",
+                "--input-file",
+                html_path,
+                "--cc",
+                "forsythc@ucr.edu",
+            ]
+            console.print(
+                f"[cyan]Executing email notification command: {' '.join(cmd)}[/cyan]"
+            )
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0:
+                console.print("[green]✓ Email notification sent successfully.[/green]")
+            else:
+                console.print(
+                    f"[bold red]Failed to send email notification:[/bold red] {res.stderr}"
+                )
 
 
 # --- Places Management ---
