@@ -985,12 +985,15 @@ def make_dashboard_layout() -> Layout:
         Layout(name="left", ratio=1), Layout(name="right", ratio=1)
     )
     layout["left"].split_column(
-        Layout(name="current", ratio=1), Layout(name="stargazing", size=7)
+        Layout(name="current", ratio=12),
+        Layout(name="wardrobe", ratio=8),
+        Layout(name="stargazing", ratio=8),
     )
     layout["right"].split_column(
-        Layout(name="forecast", ratio=1),
-        Layout(name="hourly", ratio=1),
-        Layout(name="activities", ratio=1),
+        Layout(name="forecast", ratio=10),
+        Layout(name="hourly", ratio=10),
+        Layout(name="activities", ratio=10),
+        Layout(name="alerts", ratio=10),
     )
     return layout
 
@@ -1021,9 +1024,11 @@ def dashboard(location_arg, location, refresh):
                 current_err = "No data"
                 forecast_err = "No data"
                 hourly_err = "No data"
+                alerts_err = "No data"
                 current_cond = None
                 daily_forecast = []
                 hourly_forecast = []
+                alerts_data = []
 
                 # 1. Fetch data
                 try:
@@ -1042,6 +1047,11 @@ def dashboard(location_arg, location, refresh):
                     )
                 except Exception as e:
                     hourly_err = str(e)
+
+                try:
+                    alerts_data = client.get_public_alerts(final_location)
+                except Exception as e:
+                    alerts_err = str(e)
 
                 # Header
                 header_text = Text(
@@ -1097,6 +1107,56 @@ def dashboard(location_arg, location, refresh):
                             f"[red]Error loading current conditions:\n{current_err}[/red]",
                             title="Current Conditions",
                             border_style="red",
+                        )
+                    )
+
+                # Wardrobe Advisor Panel
+                if current_cond:
+                    unit = (current_cond.temperature.units or "").upper()
+                    temp_val = current_cond.temperature.value or 0.0
+                    feels_like_val = current_cond.feels_like.value or 0.0
+                    temp_f = to_fahrenheit(temp_val, unit)
+                    feels_like_f = to_fahrenheit(feels_like_val, unit)
+
+                    advice = WardrobeAdviser.advise(
+                        temp_f=temp_f,
+                        feels_like_f=feels_like_f,
+                        precip_prob=current_cond.precipitation.probability or 0.0,
+                        precip_rate=current_cond.precipitation.rate or 0.0,
+                        uv_index=current_cond.uv_index or 0,
+                        wind_speed=current_cond.wind.speed or 0.0,
+                        humidity=current_cond.humidity or 0.0,
+                        desc=current_cond.description or "",
+                    )
+
+                    grid = Table.grid(expand=True, padding=(0, 1))
+                    grid.add_column(style="blue bold", width=15)
+                    grid.add_column()
+
+                    if advice["clothing"]:
+                        grid.add_row("👕 Clothes:", ", ".join(advice["clothing"][:2]))
+                    if advice["outerwear"]:
+                        grid.add_row(
+                            "🧥 Outerwear:", ", ".join(advice["outerwear"][:2])
+                        )
+                    if advice["footwear"]:
+                        grid.add_row("🥾 Footwear:", ", ".join(advice["footwear"][:2]))
+                    if advice["gear"]:
+                        grid.add_row("🎒 Gear:", ", ".join(advice["gear"][:2]))
+
+                    layout["left"]["wardrobe"].update(
+                        Panel(
+                            grid,
+                            title="[bold blue]Wardrobe Advisor[/bold blue]",
+                            border_style="blue",
+                        )
+                    )
+                else:
+                    layout["left"]["wardrobe"].update(
+                        Panel(
+                            f"[yellow]Waiting for wardrobe data...\n{current_err}[/yellow]",
+                            title="[bold blue]Wardrobe Advisor[/bold blue]",
+                            border_style="blue",
                         )
                     )
 
@@ -1255,6 +1315,62 @@ def dashboard(location_arg, location, refresh):
                             border_style="yellow",
                         )
                     )
+
+                # Severe Weather Alerts Panel
+                if alerts_data:
+                    grid = Table.grid(expand=True, padding=(0, 1))
+                    grid.add_column(style="bold red", width=10)
+                    grid.add_column()
+
+                    for alert in alerts_data[:2]:
+                        severity_color = "red"
+                        if alert.severity.upper() in ["SEVERE", "EXTREME"]:
+                            severity_color = "bold red"
+                        elif alert.severity.upper() == "MODERATE":
+                            severity_color = "yellow"
+                        elif alert.severity.upper() == "MINOR":
+                            severity_color = "cyan"
+
+                        grid.add_row(
+                            f"[{severity_color}]{alert.severity}[/{severity_color}]",
+                            f"[bold]{alert.headline}[/bold]\n[dim]{alert.description[:100]}...[/dim]",
+                        )
+
+                    layout["right"]["alerts"].update(
+                        Panel(
+                            grid,
+                            title="[bold red]⚠️ Active Severe Weather Alerts[/bold red]",
+                            border_style="red",
+                        )
+                    )
+                else:
+                    # If no public alerts exist, let's display reassurance OR comfort/wardrobe warnings if available
+                    comfort_text = ""
+                    if current_cond and "advice" in locals():
+                        all_notes = advice.get("warnings", []) + advice.get(
+                            "comfort_notes", []
+                        )
+                        if all_notes:
+                            comfort_text = "\n".join(
+                                f"• {note}" for note in all_notes[:2]
+                            )
+
+                    if comfort_text:
+                        layout["right"]["alerts"].update(
+                            Panel(
+                                comfort_text,
+                                title="[bold green]✓ Safety & Comfort Advisory[/bold green]",
+                                border_style="green",
+                            )
+                        )
+                    else:
+                        layout["right"]["alerts"].update(
+                            Panel(
+                                "[bold green]✓ No active severe weather alerts.[/bold green]\n[dim]Enjoy the clear conditions and stay safe![/dim]",
+                                title="[bold green]⚠️ Severe Weather Alerts[/bold green]",
+                                border_style="green",
+                            )
+                        )
 
                 # Footer
                 footer_text = Text(

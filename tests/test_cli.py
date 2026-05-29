@@ -246,10 +246,12 @@ def test_make_dashboard_layout():
     assert layout.get("left") is not None
     assert layout.get("right") is not None
     assert layout.get("current") is not None
+    assert layout.get("wardrobe") is not None
     assert layout.get("stargazing") is not None
     assert layout.get("forecast") is not None
     assert layout.get("hourly") is not None
     assert layout.get("activities") is not None
+    assert layout.get("alerts") is not None
 
 
 def test_cli_compare_current(mocker):
