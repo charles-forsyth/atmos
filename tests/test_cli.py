@@ -133,3 +133,70 @@ def test_cli_find(mocker):
     assert "100/100" in result.output
     # Should penalize second day
     assert "High rain chance" in result.output
+
+
+def test_cli_brief(mocker):
+    mocker.patch(
+        "atmos.core.client.get_current_conditions", return_value=create_dummy_weather()
+    )
+    mocker.patch(
+        "atmos.core.client.get_daily_forecast",
+        return_value=[
+            DailyForecastItem(
+                date=datetime(2023, 10, 6),
+                low_temp=Temperature(value=60.0, units="FAHRENHEIT"),
+                high_temp=Temperature(value=75.0, units="FAHRENHEIT"),
+                description="Sunny",
+                precipitation_probability=0.0,
+                cloud_cover=10,
+                moon_phase="NEW_MOON",
+            )
+        ],
+    )
+    mocker.patch("atmos.core.client.get_public_alerts", return_value=[])
+    mock_ai = mocker.patch(
+        "atmos.core.client.generate_ai_briefing",
+        return_value="This is a test briefing.",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["brief", "-L", "Paris"])
+    assert result.exit_code == 0
+    assert "This is a test briefing." in result.output
+    mock_ai.assert_called_once()
+
+
+def test_cli_route(mocker):
+    mock_route = mocker.patch(
+        "atmos.core.client.get_route_weather",
+        return_value=[
+            {
+                "waypoint": {
+                    "lat": 40.7128,
+                    "lng": -74.0060,
+                    "address": "New York, NY",
+                    "instruction": "Departure",
+                    "elapsed_seconds": 0,
+                    "distance_text": "0.0 mi",
+                },
+                "eta": datetime(2023, 10, 6, 12, 0),
+                "weather": HourlyForecastItem(
+                    timestamp=datetime(2023, 10, 6, 12, 0),
+                    temperature=Temperature(value=70.0, units="FAHRENHEIT"),
+                    feels_like=Temperature(value=70.0, units="FAHRENHEIT"),
+                    wind=Wind(speed=5.0, direction="W"),
+                    precipitation=Precipitation(probability=10.0),
+                    description="Partly Cloudy",
+                ),
+            }
+        ],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["route", "-S", "New York", "-E", "Boston"])
+    assert result.exit_code == 0
+    assert "New York" in result.output
+    assert "NY" in result.output
+    assert "Partly" in result.output
+    assert "Cloudy" in result.output
+    mock_route.assert_called_once_with("New York", "Boston")
