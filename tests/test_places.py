@@ -113,3 +113,109 @@ def test_places_manager_atomic_save(tmp_path, mocker):
     # Tmp file shouldn't be left behind
     tmp_file = manager.places_file.with_suffix(".json.tmp")
     assert not tmp_file.exists()
+
+
+def test_places_manager_rich_and_defaults(tmp_path, mocker):
+    mocker.patch.object(PlacesManager, "__init__", return_value=None)
+
+    manager = PlacesManager()
+    manager.config_dir = tmp_path
+    manager.places_file = tmp_path / "places.json"
+    manager._ensure_file()
+
+    # Test rich add
+    manager.add_rich(
+        "Office",
+        "456 Corporate Blvd",
+        lat=34.0522,
+        lng=-118.2437,
+        formatted="Office, Los Angeles, CA",
+    )
+
+    assert manager.get("Office") == "456 Corporate Blvd"
+    assert manager.get_coords("Office") == (34.0522, -118.2437)
+
+    rich_list = manager.list_rich()
+    assert "Office" in rich_list
+    assert rich_list["Office"]["lat"] == 34.0522
+    assert rich_list["Office"]["formatted"] == "Office, Los Angeles, CA"
+
+    # Test default place settings
+    assert manager.get_default() == "Home"
+    assert manager.set_default("Office") is True
+    assert manager.get_default() == "Office"
+
+    # Try setting invalid place as default (should fail)
+    assert manager.set_default("InvalidPlace") is False
+    assert manager.get_default() == "Office"
+
+
+def test_places_manager_export_import(tmp_path, mocker):
+    mocker.patch.object(PlacesManager, "__init__", return_value=None)
+
+    # Setup source manager
+    src_manager = PlacesManager()
+    src_manager.config_dir = tmp_path / "src"
+    src_manager.places_file = src_manager.config_dir / "places.json"
+    src_manager._ensure_file()
+
+    src_manager.add_rich("Home", "123 Main St", lat=40.7128, lng=-74.0060)
+    src_manager.add_rich("Work", "789 Pine Rd", lat=37.7749, lng=-122.4194)
+    src_manager.set_default("Work")
+
+    export_path = tmp_path / "exported_places.json"
+    exported_count = src_manager.export_places(export_path)
+    assert exported_count == 2
+    assert export_path.exists()
+
+    # Setup destination manager
+    dest_manager = PlacesManager()
+    dest_manager.config_dir = tmp_path / "dest"
+    dest_manager.places_file = dest_manager.config_dir / "places.json"
+    dest_manager._ensure_file()
+
+    # Verify dest starts empty/default
+    assert dest_manager.get_default() == "Home"
+    assert len(dest_manager.list()) == 0
+
+    # Import
+    imported_count = dest_manager.import_places(export_path)
+    assert imported_count == 2
+
+    # Verify dest contents
+    assert dest_manager.get_default() == "Work"
+    assert dest_manager.get("Home") == "123 Main St"
+    assert dest_manager.get_coords("Home") == (40.7128, -74.0060)
+    assert dest_manager.get("Work") == "789 Pine Rd"
+    assert dest_manager.get_coords("Work") == (37.7749, -122.4194)
+
+
+def test_places_manager_old_schema_migration(tmp_path, mocker):
+    mocker.patch.object(PlacesManager, "__init__", return_value=None)
+
+    manager = PlacesManager()
+    manager.config_dir = tmp_path
+    manager.places_file = tmp_path / "places.json"
+
+    # Write old flat format dict manually
+    old_data = {
+        "Home": "123 Old Flat St",
+        "Cabin": "555 Mountain View Dr",
+        "default_place": "Cabin",
+    }
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    with open(manager.places_file, "w") as f:
+        json.dump(old_data, f)
+
+    # Initialize / Load should automatically trigger migration
+    manager._ensure_file()
+
+    # Check migrated contents
+    assert manager.get_default() == "Cabin"
+    assert manager.get("Home") == "123 Old Flat St"
+    assert manager.get("Cabin") == "555 Mountain View Dr"
+
+    # Ensure coordinates fields exist as None after migration
+    rich_list = manager.list_rich()
+    assert rich_list["Home"]["lat"] is None
+    assert rich_list["Cabin"]["lng"] is None

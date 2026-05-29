@@ -57,19 +57,53 @@ def test_cli_places_integration(mocker):
 
 
 def test_cli_places_commands(mocker):
-    mock_add = mocker.patch("atmos.places.places_manager.add")
+    mock_add_rich = mocker.patch("atmos.places.places_manager.add_rich")
+    mock_geocode = mocker.patch(
+        "atmos.core.client.geocode",
+        return_value=(40.7128, -74.0060, "Verified Office Addr"),
+    )
     mocker.patch(
-        "atmos.places.places_manager.list", return_value={"Work": "Office Addr"}
+        "atmos.places.places_manager.list_rich",
+        return_value={
+            "Work": {
+                "address": "Office Addr",
+                "lat": 40.7128,
+                "lng": -74.0060,
+                "formatted": "Verified Office Addr",
+            }
+        },
     )
     mocker.patch("atmos.places.places_manager.remove", return_value=True)
     runner = CliRunner()
+
+    # Test verified addition
     result = runner.invoke(main, ["places", "add", "Work", "Office Addr"])
     assert result.exit_code == 0
-    assert "Added: Work" in result.output
-    mock_add.assert_called_with("Work", "Office Addr")
+    assert "Location Saved & Verified" in result.output
+    mock_geocode.assert_called_with("Office Addr")
+    mock_add_rich.assert_called_with(
+        "Work",
+        "Office Addr",
+        lat=40.7128,
+        lng=-74.0060,
+        formatted="Verified Office Addr",
+    )
+
+    # Test unverified addition
+    result = runner.invoke(
+        main, ["places", "add", "Work", "Office Addr", "--no-verify"]
+    )
+    assert result.exit_code == 0
+    assert "Added (Unverified): Work" in result.output
+    mock_add_rich.assert_called_with("Work", "Office Addr")
+
+    # Test list
     result = runner.invoke(main, ["places", "list"])
     assert result.exit_code == 0
     assert "Work" in result.output
+    assert "Verified Office Addr" in result.output
+
+    # Test remove
     result = runner.invoke(main, ["places", "remove", "Work"])
     assert result.exit_code == 0
     assert "Removed: Work" in result.output

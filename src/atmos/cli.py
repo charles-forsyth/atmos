@@ -10,7 +10,7 @@ import asciichartpy  # type: ignore[import-untyped]
 import re
 import subprocess
 import time
-
+from pathlib import Path
 from atmos.core import client
 from atmos.places import places_manager
 from atmos.utils import get_stargazing_conditions
@@ -101,7 +101,10 @@ class DefaultGroup(click.Group):
             args = [a for a in args if a != "--no-cache"]
 
         if not args:
-            return super().parse_args(ctx, ["forecast", "-L", "Home", "--hourly"])
+            default_place = places_manager.get_default() or "Home"
+            return super().parse_args(
+                ctx, ["forecast", "-L", default_place, "--hourly"]
+            )
         cmd_name = args[0]
         if cmd_name in self.commands or cmd_name in ctx.help_option_names:
             return super().parse_args(ctx, args)
@@ -699,7 +702,7 @@ def brief(location_arg, location, email, say):
 
     Uses Gemini to analyze current, forecast, alerts, and stargazing data.
     """
-    target = location_arg or location or "Home"
+    target = location_arg or location or (places_manager.get_default() or "Home")
     saved_address = places_manager.get(target)
     final_location = saved_address if saved_address else target
 
@@ -1002,7 +1005,7 @@ def dashboard(location_arg, location, refresh):
 
     Refreshes automatically at a configured interval.
     """
-    target = location_arg or location or "Home"
+    target = location_arg or location or (places_manager.get_default() or "Home")
     saved_address = places_manager.get(target)
     final_location = saved_address if saved_address else target
 
@@ -1465,7 +1468,7 @@ def wardrobe(location_arg, location):
     Analyzes temperature, wind, precipitation, UV index, and humidity
     to recommend the ideal clothing layers, footwear, and accessories.
     """
-    target = location_arg or location or "Home"
+    target = location_arg or location or (places_manager.get_default() or "Home")
     saved_address = places_manager.get(target)
     final_location = saved_address if saved_address else target
 
@@ -1598,8 +1601,11 @@ def notify(location_arg, location, system, email, yes):
     else:
         saved_places = places_manager.list()
         if not saved_places:
-            saved_address = places_manager.get("Home")
-            targets.append(("Home", saved_address if saved_address else "Home"))
+            default_place = places_manager.get_default() or "Home"
+            saved_address = places_manager.get(default_place)
+            targets.append(
+                (default_place, saved_address if saved_address else default_place)
+            )
         else:
             for name, addr in saved_places.items():
                 targets.append((name, addr))
@@ -1753,26 +1759,84 @@ def places():
 @places.command("add")
 @click.argument("name")
 @click.argument("address")
-def places_add(name, address):
+@click.option(
+    "--no-verify", is_flag=True, help="Skip verification & geocoding of the address"
+)
+def places_add(name, address, no_verify):
     """Save a location."""
-    places_manager.add(name, address)
-    console.print(f"[green]Added:[/green] {name} -> {address}")
+    if no_verify:
+        places_manager.add_rich(name, address)
+        console.print(f"[green]Added (Unverified):[/green] {name} -> {address}")
+        return
+
+    try:
+        with console.status(
+            f"[cyan]Verifying address and caching coordinates for '{address}'...[/cyan]"
+        ):
+            lat, lng, formatted = client.geocode(address)
+
+        places_manager.add_rich(name, address, lat=lat, lng=lng, formatted=formatted)
+
+        # Show a rich, premium layout for the verified place
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column(style="bold cyan")
+        grid.add_column(style="white")
+        grid.add_row("Name:", name)
+        grid.add_row("Address:", address)
+        grid.add_row("Verified:", formatted)
+        grid.add_row("Coordinates:", f"Latitude: {lat:.6f}, Longitude: {lng:.6f}")
+
+        console.print(
+            Panel(
+                grid,
+                title="[bold green]✓ Location Saved & Verified[/bold green]",
+                border_style="green",
+                expand=False,
+            )
+        )
+    except Exception as e:
+        console.print(f"[bold red]Verification Failed:[/bold red] {e}")
+        console.print(
+            "[yellow]Could not verify address with Google Maps Geocoding API.[/yellow]"
+        )
+        console.print(
+            "[dim]Use [bold]--no-verify[/bold] flag to skip validation if you want to add it anyway.[/dim]"
+        )
 
 
 @places.command("list")
 def places_list():
-    """List all saved locations."""
-    places = places_manager.list()
+    """List all saved locations with coordinates and default status."""
+    places = places_manager.list_rich()
     if not places:
         console.print("[yellow]No places saved.[/yellow]")
         return
 
-    table = Table(title="Saved Places", box=box.SIMPLE)
+    default_place = places_manager.get_default() or "Home"
+
+    table = Table(title="Saved Places Registry", box=box.SIMPLE)
+    table.add_column("Default", justify="center", width=8)
     table.add_column("Name", style="cyan")
     table.add_column("Address", style="white")
+    table.add_column("Coordinates", style="dim green")
+    table.add_column("Verified Address", style="dim italic white")
 
-    for name, address in places.items():
-        table.add_row(name, address)
+    for name, info in places.items():
+        is_default = "[green]✓[/green]" if name.lower() == default_place.lower() else ""
+
+        address = info.get("address", "")
+        lat = info.get("lat")
+        lng = info.get("lng")
+        formatted = info.get("formatted", "") or ""
+
+        coords_str = (
+            f"{lat:.4f}, {lng:.4f}"
+            if lat is not None and lng is not None
+            else "[dim]N/A[/dim]"
+        )
+        verified_str = formatted if formatted else "[dim]N/A[/dim]"
+
+        table.add_row(is_default, name, address, coords_str, verified_str)
 
     console.print(table)
 
@@ -1785,6 +1849,82 @@ def places_remove(name):
         console.print(f"[green]Removed:[/green] {name}")
     else:
         console.print(f"[red]Place not found:[/red] {name}")
+
+
+@places.command("default")
+@click.argument("name", required=False)
+def places_default(name):
+    """Get or set the default saved location."""
+    if name is None:
+        # Get current default
+        default_place = places_manager.get_default()
+        if default_place:
+            # Show details
+            address = places_manager.get(default_place)
+            coords = places_manager.get_coords(default_place)
+
+            grid = Table.grid(padding=(0, 2))
+            grid.add_column(style="bold cyan")
+            grid.add_column(style="white")
+            grid.add_row("Default Name:", default_place)
+            if address:
+                grid.add_row("Address:", address)
+            if coords:
+                grid.add_row("Coordinates:", f"Lat: {coords[0]}, Lng: {coords[1]}")
+
+            console.print(
+                Panel(
+                    grid,
+                    title="[bold green]Current Default Location[/bold green]",
+                    border_style="green",
+                    expand=False,
+                )
+            )
+        else:
+            console.print(
+                "[yellow]No default location configured (falls back to 'Home').[/yellow]"
+            )
+    else:
+        # Set current default
+        if places_manager.set_default(name):
+            console.print(
+                f"[green]✓ Successfully set default location to:[/green] [bold cyan]{name}[/bold cyan]"
+            )
+        else:
+            console.print(
+                f"[bold red]Error:[/bold red] Place '[bold]{name}[/bold]' does not exist in registry."
+            )
+            console.print(
+                "[yellow]Add it first using 'atmos places add <name> <address>' or use a valid name.[/yellow]"
+            )
+
+
+@places.command("export")
+@click.argument("filepath", type=click.Path(writable=True, path_type=Path))
+def places_export(filepath):
+    """Export saved places to a JSON file."""
+    try:
+        count = places_manager.export_places(filepath)
+        console.print(
+            f"[green]✓ Successfully exported {count} places to {filepath}[/green]"
+        )
+    except Exception as e:
+        console.print(f"[bold red]Export Failed:[/bold red] {e}")
+
+
+@places.command("import")
+@click.argument(
+    "filepath", type=click.Path(exists=True, dir_okay=False, path_type=Path)
+)
+def places_import(filepath):
+    """Import/merge saved places from a JSON file."""
+    try:
+        count = places_manager.import_places(filepath)
+        console.print(
+            f"[green]✓ Successfully imported & merged {count} places from {filepath}[/green]"
+        )
+    except Exception as e:
+        console.print(f"[bold red]Import Failed:[/bold red] {e}")
 
 
 if __name__ == "__main__":

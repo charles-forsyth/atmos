@@ -56,10 +56,54 @@ class AtmosClient:
 
         raise AtmosAPIError(resp.status_code, msg, resp.text)
 
+    def geocode(self, location: str) -> Tuple[float, float, str]:
+        """Resolves a location to (lat, lng, formatted_address) using the Google Maps Geocoding API."""
+        self._check_api_key()
+        params = {"address": location, "key": self.api_key}
+        resp = requests.get(self.geocode_url, params=params, timeout=10.0)
+
+        if not resp.ok:
+            self._handle_error(resp)
+
+        data = resp.json()
+        status = data.get("status")
+
+        if status == "ZERO_RESULTS":
+            raise ValueError(f"Location not found: {location}")
+        elif status != "OK" and status is not None:
+            err_msg = data.get("error_message", "Unknown geocoding error")
+            raise AtmosAPIError(
+                200, f"Geocoding API Error ({status}): {err_msg}", json.dumps(data)
+            )
+
+        if not data.get("results"):
+            raise ValueError(f"Location not found: {location}")
+
+        result = data["results"][0]
+        loc = result["geometry"]["location"]
+        lat_lng = (loc["lat"], loc["lng"])
+        formatted_address = result.get("formatted_address", location)
+
+        # Cache the result for 24 hours (86400 seconds)
+        loc_key = f"coords_{location.lower().strip()}"
+        cache_manager.set(loc_key, lat_lng, expires_sec=86400)
+
+        return lat_lng[0], lat_lng[1], formatted_address
+
     def get_coords(self, location: str) -> Tuple[float, float]:
         """Resolves a string location to (lat, lng), utilizing caching and offline fallback."""
-        self._check_api_key()
-        loc_key = f"coords_{location.lower().strip()}"
+        from atmos.places import places_manager
+
+        # Instantly resolve coordinates of saved places if pre-cached
+        saved_coords = places_manager.get_coords(location)
+        if saved_coords is not None:
+            return saved_coords
+
+        # Check if it's a saved place but with a custom address
+        saved_address = places_manager.get(location)
+        lookup_name = saved_address if saved_address else location
+
+        loc_key = f"coords_{lookup_name.lower().strip()}"
 
         # Try to read from cache
         cached = cache_manager.get(loc_key)
@@ -70,32 +114,8 @@ class AtmosClient:
 
         # If not cached or expired, fetch from API
         try:
-            params = {"address": location, "key": self.api_key}
-            resp = requests.get(self.geocode_url, params=params, timeout=10.0)
-
-            if not resp.ok:
-                self._handle_error(resp)
-
-            data = resp.json()
-            status = data.get("status")
-
-            if status == "ZERO_RESULTS":
-                raise ValueError(f"Location not found: {location}")
-            elif status != "OK" and status is not None:
-                err_msg = data.get("error_message", "Unknown geocoding error")
-                raise AtmosAPIError(
-                    200, f"Geocoding API Error ({status}): {err_msg}", json.dumps(data)
-                )
-
-            if not data.get("results"):
-                raise ValueError(f"Location not found: {location}")
-
-            loc = data["results"][0]["geometry"]["location"]
-            lat_lng = (loc["lat"], loc["lng"])
-
-            # Cache the result for 24 hours (86400 seconds)
-            cache_manager.set(loc_key, lat_lng, expires_sec=86400)
-            return lat_lng
+            lat, lng, _ = self.geocode(lookup_name)
+            return lat, lng
         except Exception as e:
             # If API request fails, check if we have expired cache to fall back on
             if cached:
