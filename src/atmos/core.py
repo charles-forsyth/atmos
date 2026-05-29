@@ -14,6 +14,7 @@ from atmos.models import (
     WeatherAlert,
 )
 from atmos.exceptions import AtmosAPIError
+from atmos.cache import cache_manager
 from rich.console import Console
 
 console = Console()
@@ -56,30 +57,55 @@ class AtmosClient:
         raise AtmosAPIError(resp.status_code, msg, resp.text)
 
     def get_coords(self, location: str) -> Tuple[float, float]:
-        """Resolves a string location to (lat, lng)."""
+        """Resolves a string location to (lat, lng), utilizing caching and offline fallback."""
         self._check_api_key()
-        params = {"address": location, "key": self.api_key}
-        resp = requests.get(self.geocode_url, params=params, timeout=10.0)
+        loc_key = f"coords_{location.lower().strip()}"
 
-        if not resp.ok:
-            self._handle_error(resp)
+        # Try to read from cache
+        cached = cache_manager.get(loc_key)
+        if cached:
+            val, is_expired, age_sec = cached
+            if not is_expired:
+                return tuple(val)  # type: ignore
 
-        data = resp.json()
-        status = data.get("status")
+        # If not cached or expired, fetch from API
+        try:
+            params = {"address": location, "key": self.api_key}
+            resp = requests.get(self.geocode_url, params=params, timeout=10.0)
 
-        if status == "ZERO_RESULTS":
-            raise ValueError(f"Location not found: {location}")
-        elif status != "OK" and status is not None:
-            err_msg = data.get("error_message", "Unknown geocoding error")
-            raise AtmosAPIError(
-                200, f"Geocoding API Error ({status}): {err_msg}", json.dumps(data)
-            )
+            if not resp.ok:
+                self._handle_error(resp)
 
-        if not data.get("results"):
-            raise ValueError(f"Location not found: {location}")
+            data = resp.json()
+            status = data.get("status")
 
-        loc = data["results"][0]["geometry"]["location"]
-        return loc["lat"], loc["lng"]
+            if status == "ZERO_RESULTS":
+                raise ValueError(f"Location not found: {location}")
+            elif status != "OK" and status is not None:
+                err_msg = data.get("error_message", "Unknown geocoding error")
+                raise AtmosAPIError(
+                    200, f"Geocoding API Error ({status}): {err_msg}", json.dumps(data)
+                )
+
+            if not data.get("results"):
+                raise ValueError(f"Location not found: {location}")
+
+            loc = data["results"][0]["geometry"]["location"]
+            lat_lng = (loc["lat"], loc["lng"])
+
+            # Cache the result for 24 hours (86400 seconds)
+            cache_manager.set(loc_key, lat_lng, expires_sec=86400)
+            return lat_lng
+        except Exception as e:
+            # If API request fails, check if we have expired cache to fall back on
+            if cached:
+                val, _, age_sec = cached
+                age_min = age_sec // 60
+                console.print(
+                    f"[yellow]⚠️ Geocoding connection failed. Using cached coordinates from {age_min} minutes ago.[/yellow]"
+                )
+                return tuple(val)  # type: ignore
+            raise e
 
     def _parse_condition(
         self, data: Dict[str, Any]
@@ -138,134 +164,135 @@ class AtmosClient:
         return temp, feels_like, wind, precip, description, humidity, pressure
 
     def get_current_conditions(self, location: str) -> CurrentConditions:
-        """Fetches real current weather conditions."""
-        lat, lng = self.get_coords(location)
+        """Fetches real current weather conditions, with caching and offline fallback."""
+        try:
+            lat, lng = self.get_coords(location)
+        except Exception as e:
+            # If coordinates lookup fails, let's see if we have cached current weather
+            # using the location name directly as an alias.
+            loc_key = f"coords_{location.lower().strip()}"
+            cached_loc = cache_manager.get(loc_key)
+            if cached_loc:
+                val, _, _ = cached_loc
+                lat, lng = val
+            else:
+                raise e
 
-        url = f"{self.base_url}/currentConditions:lookup"
-        params = {
-            "location.latitude": lat,
-            "location.longitude": lng,
-            "key": self.api_key,
-            "unitsSystem": "IMPERIAL",
-        }
+        cache_key = f"current_{lat}_{lng}"
+        cached = cache_manager.get(cache_key)
+        if cached:
+            val, is_expired, age_sec = cached
+            if not is_expired:
+                return CurrentConditions.model_validate(val)
 
-        resp = requests.get(url, params=params, timeout=10.0)
+        try:
+            url = f"{self.base_url}/currentConditions:lookup"
+            params = {
+                "location.latitude": lat,
+                "location.longitude": lng,
+                "key": self.api_key,
+                "unitsSystem": "IMPERIAL",
+            }
 
-        if not resp.ok:
-            self._handle_error(resp)
+            resp = requests.get(url, params=params, timeout=10.0)
 
-        data = resp.json()
-        cond = data.get("currentConditions", data)
+            if not resp.ok:
+                self._handle_error(resp)
 
-        temp, feels_like, wind, precip, desc, humidity, pressure = (
-            self._parse_condition(cond)
-        )
+            data = resp.json()
+            cond = data.get("currentConditions", data)
 
-        # Visibility
-        vis_obj = cond.get("visibility", {})
-        vis_val = vis_obj.get("distance", 10.0)
-
-        return CurrentConditions(
-            temperature=temp,
-            feels_like=feels_like,
-            humidity=humidity,
-            description=desc,
-            wind=wind,
-            precipitation=precip,
-            uv_index=cond.get("uvIndex", 0),
-            visibility=vis_val,
-            pressure=pressure,
-        )
-
-    def get_hourly_history(
-        self, location: str, hours: int = 24
-    ) -> List[HourlyHistoryItem]:
-        """Fetches hourly history for the last N hours."""
-        lat, lng = self.get_coords(location)
-
-        url = f"{self.base_url}/history/hours:lookup"
-        fetch_hours = min(hours, 24)
-
-        params = {
-            "location.latitude": lat,
-            "location.longitude": lng,
-            "hours": fetch_hours,
-            "key": self.api_key,
-            "unitsSystem": "IMPERIAL",
-            "pageSize": fetch_hours,
-        }
-
-        resp = requests.get(url, params=params, timeout=10.0)
-        if not resp.ok:
-            self._handle_error(resp)
-
-        data = resp.json()
-
-        history_items = []
-        entries = data.get("historyHours", [])
-
-        for entry in entries:
-            interval = entry.get("interval", {})
-            ts_str = interval.get("startTime")
-            if not ts_str:
-                continue
-
-            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             temp, feels_like, wind, precip, desc, humidity, pressure = (
-                self._parse_condition(entry)
+                self._parse_condition(cond)
             )
 
-            item = HourlyHistoryItem(
-                timestamp=ts,
+            # Visibility
+            vis_obj = cond.get("visibility", {})
+            vis_val = vis_obj.get("distance", 10.0)
+
+            result = CurrentConditions(
                 temperature=temp,
                 feels_like=feels_like,
                 humidity=humidity,
                 description=desc,
                 wind=wind,
                 precipitation=precip,
+                uv_index=cond.get("uvIndex", 0),
+                visibility=vis_val,
                 pressure=pressure,
             )
-            history_items.append(item)
 
-        return history_items
-
-    def get_hourly_forecast(
-        self, location: str, hours: int = 24
-    ) -> List[HourlyForecastItem]:
-        """Fetches hourly forecast."""
-        lat, lng = self.get_coords(location)
-        url = f"{self.base_url}/forecast/hours:lookup"
-
-        params = {
-            "location.latitude": lat,
-            "location.longitude": lng,
-            "hours": min(hours, 240),
-            "key": self.api_key,
-            "unitsSystem": "IMPERIAL",
-            "pageSize": min(hours, 24),
-        }
-
-        resp = requests.get(url, params=params, timeout=10.0)
-        if not resp.ok:
-            self._handle_error(resp)
-
-        data = resp.json()
-        entries = data.get("forecastHours", [])
-
-        items = []
-        for entry in entries:
-            interval = entry.get("interval", {})
-            ts_str = interval.get("startTime")
-            if not ts_str:
-                continue
-
-            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-            temp, feels_like, wind, precip, desc, humidity, pressure = (
-                self._parse_condition(entry)
+            # Cache successful result for 10 minutes (600 seconds)
+            cache_manager.set(
+                cache_key, result.model_dump(mode="json"), expires_sec=600
             )
+            return result
+        except Exception as e:
+            if cached:
+                val, _, age_sec = cached
+                age_min = age_sec // 60
+                console.print(
+                    f"[yellow]⚠️ Weather API connection failed. Using cached current conditions from {age_min} minutes ago.[/yellow]"
+                )
+                return CurrentConditions.model_validate(val)
+            raise e
 
-            items.append(
-                HourlyForecastItem(
+    def get_hourly_history(
+        self, location: str, hours: int = 24
+    ) -> List[HourlyHistoryItem]:
+        """Fetches hourly history for the last N hours, with caching and offline fallback."""
+        try:
+            lat, lng = self.get_coords(location)
+        except Exception as e:
+            loc_key = f"coords_{location.lower().strip()}"
+            cached_loc = cache_manager.get(loc_key)
+            if cached_loc:
+                val, _, _ = cached_loc
+                lat, lng = val
+            else:
+                raise e
+
+        cache_key = f"history_{lat}_{lng}_{hours}"
+        cached = cache_manager.get(cache_key)
+        if cached:
+            val, is_expired, age_sec = cached
+            if not is_expired:
+                return [HourlyHistoryItem.model_validate(item) for item in val]
+
+        try:
+            url = f"{self.base_url}/history/hours:lookup"
+            fetch_hours = min(hours, 24)
+
+            params = {
+                "location.latitude": lat,
+                "location.longitude": lng,
+                "hours": fetch_hours,
+                "key": self.api_key,
+                "unitsSystem": "IMPERIAL",
+                "pageSize": fetch_hours,
+            }
+
+            resp = requests.get(url, params=params, timeout=10.0)
+            if not resp.ok:
+                self._handle_error(resp)
+
+            data = resp.json()
+
+            history_items = []
+            entries = data.get("historyHours", [])
+
+            for entry in entries:
+                interval = entry.get("interval", {})
+                ts_str = interval.get("startTime")
+                if not ts_str:
+                    continue
+
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                temp, feels_like, wind, precip, desc, humidity, pressure = (
+                    self._parse_condition(entry)
+                )
+
+                item = HourlyHistoryItem(
                     timestamp=ts,
                     temperature=temp,
                     feels_like=feels_like,
@@ -275,186 +302,352 @@ class AtmosClient:
                     precipitation=precip,
                     pressure=pressure,
                 )
+                history_items.append(item)
+
+            # Cache successful result for 1 hour (3600 seconds)
+            cache_manager.set(
+                cache_key,
+                [item.model_dump(mode="json") for item in history_items],
+                expires_sec=3600,
             )
-        return items
+            return history_items
+        except Exception as e:
+            if cached:
+                val, _, age_sec = cached
+                age_min = age_sec // 60
+                console.print(
+                    f"[yellow]⚠️ Weather API connection failed. Using cached hourly history from {age_min} minutes ago.[/yellow]"
+                )
+                return [HourlyHistoryItem.model_validate(item) for item in val]
+            raise e
+
+    def get_hourly_forecast(
+        self, location: str, hours: int = 24
+    ) -> List[HourlyForecastItem]:
+        """Fetches hourly forecast, with caching and offline fallback."""
+        try:
+            lat, lng = self.get_coords(location)
+        except Exception as e:
+            loc_key = f"coords_{location.lower().strip()}"
+            cached_loc = cache_manager.get(loc_key)
+            if cached_loc:
+                val, _, _ = cached_loc
+                lat, lng = val
+            else:
+                raise e
+
+        cache_key = f"hourly_{lat}_{lng}_{hours}"
+        cached = cache_manager.get(cache_key)
+        if cached:
+            val, is_expired, age_sec = cached
+            if not is_expired:
+                return [HourlyForecastItem.model_validate(item) for item in val]
+
+        try:
+            url = f"{self.base_url}/forecast/hours:lookup"
+
+            params = {
+                "location.latitude": lat,
+                "location.longitude": lng,
+                "hours": min(hours, 240),
+                "key": self.api_key,
+                "unitsSystem": "IMPERIAL",
+                "pageSize": min(hours, 24),
+            }
+
+            resp = requests.get(url, params=params, timeout=10.0)
+            if not resp.ok:
+                self._handle_error(resp)
+
+            data = resp.json()
+            entries = data.get("forecastHours", [])
+
+            items = []
+            for entry in entries:
+                interval = entry.get("interval", {})
+                ts_str = interval.get("startTime")
+                if not ts_str:
+                    continue
+
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                temp, feels_like, wind, precip, desc, humidity, pressure = (
+                    self._parse_condition(entry)
+                )
+
+                items.append(
+                    HourlyForecastItem(
+                        timestamp=ts,
+                        temperature=temp,
+                        feels_like=feels_like,
+                        humidity=humidity,
+                        description=desc,
+                        wind=wind,
+                        precipitation=precip,
+                        pressure=pressure,
+                    )
+                )
+
+            # Cache successful result for 15 minutes (900 seconds)
+            cache_manager.set(
+                cache_key,
+                [item.model_dump(mode="json") for item in items],
+                expires_sec=900,
+            )
+            return items
+        except Exception as e:
+            if cached:
+                val, _, age_sec = cached
+                age_min = age_sec // 60
+                console.print(
+                    f"[yellow]⚠️ Weather API connection failed. Using cached hourly forecast from {age_min} minutes ago.[/yellow]"
+                )
+                return [HourlyForecastItem.model_validate(item) for item in val]
+            raise e
 
     def get_daily_forecast(
         self, location: str, days: int = 5
     ) -> List[DailyForecastItem]:
-        """Fetches daily forecast."""
-        lat, lng = self.get_coords(location)
-        url = f"{self.base_url}/forecast/days:lookup"
+        """Fetches daily forecast, with caching and offline fallback."""
+        try:
+            lat, lng = self.get_coords(location)
+        except Exception as e:
+            loc_key = f"coords_{location.lower().strip()}"
+            cached_loc = cache_manager.get(loc_key)
+            if cached_loc:
+                val, _, _ = cached_loc
+                lat, lng = val
+            else:
+                raise e
 
-        params = {
-            "location.latitude": lat,
-            "location.longitude": lng,
-            "days": min(days, 10),
-            "pageSize": min(days, 10),  # Added pageSize
-            "key": self.api_key,
-            "unitsSystem": "IMPERIAL",
-        }
+        cache_key = f"daily_{lat}_{lng}_{days}"
+        cached = cache_manager.get(cache_key)
+        if cached:
+            val, is_expired, age_sec = cached
+            if not is_expired:
+                return [DailyForecastItem.model_validate(item) for item in val]
 
-        resp = requests.get(url, params=params, timeout=10.0)
-        if not resp.ok:
-            self._handle_error(resp)
+        try:
+            url = f"{self.base_url}/forecast/days:lookup"
 
-        data = resp.json()
-        entries = data.get("forecastDays", [])
+            params = {
+                "location.latitude": lat,
+                "location.longitude": lng,
+                "days": min(days, 10),
+                "pageSize": min(days, 10),  # Added pageSize
+                "key": self.api_key,
+                "unitsSystem": "IMPERIAL",
+            }
 
-        items = []
-        for entry in entries:
-            interval = entry.get("interval", {})
-            ts_str = interval.get("startTime")
-            if not ts_str:
-                continue
+            resp = requests.get(url, params=params, timeout=10.0)
+            if not resp.ok:
+                self._handle_error(resp)
 
-            date = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            data = resp.json()
+            entries = data.get("forecastDays", [])
 
-            low_obj = entry.get("minTemperature", {})
-            high_obj = entry.get("maxTemperature", {})
+            items = []
+            for entry in entries:
+                interval = entry.get("interval", {})
+                ts_str = interval.get("startTime")
+                if not ts_str:
+                    continue
 
-            low_temp = Temperature(
-                value=low_obj.get("degrees", 0.0), units=low_obj.get("unit", "CELSIUS")
-            )
-            high_temp = Temperature(
-                value=high_obj.get("degrees", 0.0),
-                units=high_obj.get("unit", "CELSIUS"),
-            )
+                date = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
 
-            day_forecast = entry.get("daytimeForecast")
-            night_forecast = entry.get("nighttimeForecast")
-            target_forecast = day_forecast or night_forecast or {}
+                low_obj = entry.get("minTemperature", {})
+                high_obj = entry.get("maxTemperature", {})
 
-            cond_obj = target_forecast.get("weatherCondition", {})
-            desc_obj = cond_obj.get("description", {})
-            desc = desc_obj.get("text", cond_obj.get("type", "Unknown"))
-
-            day_precip = target_forecast.get("precipitation", {})
-            prob = day_precip.get("probability", {}).get("percent", 0.0)
-
-            cloud_cover = target_forecast.get("cloudCover", 0)
-
-            # Wind parsing
-            wind_obj = target_forecast.get("wind", {})
-            speed_obj = wind_obj.get("speed", {})
-            gust_obj = wind_obj.get("gust", {})
-            direction_obj = wind_obj.get("direction", {})
-
-            max_wind = Wind(
-                speed=speed_obj.get("value", 0.0),
-                direction=direction_obj.get("cardinal", "N"),
-                gust=gust_obj.get("value", 0.0),
-            )
-
-            sun_obj = entry.get("sunEvents", {})
-            sunrise_str = sun_obj.get("sunriseTime")
-            sunset_str = sun_obj.get("sunsetTime")
-
-            sunrise = (
-                datetime.fromisoformat(sunrise_str.replace("Z", "+00:00"))
-                if sunrise_str
-                else None
-            )
-            sunset = (
-                datetime.fromisoformat(sunset_str.replace("Z", "+00:00"))
-                if sunset_str
-                else None
-            )
-
-            # Moon Parsing
-            moon_obj = entry.get("moonEvents", {})
-            moon_phase = moon_obj.get("moonPhase", "Unknown")
-
-            moonrise_list = moon_obj.get("moonriseTimes", [])
-            moonrise = (
-                datetime.fromisoformat(moonrise_list[0].replace("Z", "+00:00"))
-                if moonrise_list
-                else None
-            )
-
-            moonset_list = moon_obj.get("moonsetTimes", [])
-            moonset = (
-                datetime.fromisoformat(moonset_list[0].replace("Z", "+00:00"))
-                if moonset_list
-                else None
-            )
-
-            items.append(
-                DailyForecastItem(
-                    date=date,
-                    low_temp=low_temp,
-                    high_temp=high_temp,
-                    description=desc,
-                    precipitation_probability=prob,
-                    sunrise=sunrise,
-                    sunset=sunset,
-                    moon_phase=moon_phase,
-                    moonrise=moonrise,
-                    moonset=moonset,
-                    cloud_cover=cloud_cover,
-                    max_wind=max_wind,
+                low_temp = Temperature(
+                    value=low_obj.get("degrees", 0.0),
+                    units=low_obj.get("unit", "CELSIUS"),
                 )
-            )
+                high_temp = Temperature(
+                    value=high_obj.get("degrees", 0.0),
+                    units=high_obj.get("unit", "CELSIUS"),
+                )
 
-        return items
+                day_forecast = entry.get("daytimeForecast")
+                night_forecast = entry.get("nighttimeForecast")
+                target_forecast = day_forecast or night_forecast or {}
+
+                cond_obj = target_forecast.get("weatherCondition", {})
+                desc_obj = cond_obj.get("description", {})
+                desc = desc_obj.get("text", cond_obj.get("type", "Unknown"))
+
+                day_precip = target_forecast.get("precipitation", {})
+                prob = day_precip.get("probability", {}).get("percent", 0.0)
+
+                cloud_cover = target_forecast.get("cloudCover", 0)
+
+                # Wind parsing
+                wind_obj = target_forecast.get("wind", {})
+                speed_obj = wind_obj.get("speed", {})
+                gust_obj = wind_obj.get("gust", {})
+                direction_obj = wind_obj.get("direction", {})
+
+                max_wind = Wind(
+                    speed=speed_obj.get("value", 0.0),
+                    direction=direction_obj.get("cardinal", "N"),
+                    gust=gust_obj.get("value", 0.0),
+                )
+
+                sun_obj = entry.get("sunEvents", {})
+                sunrise_str = sun_obj.get("sunriseTime")
+                sunset_str = sun_obj.get("sunsetTime")
+
+                sunrise = (
+                    datetime.fromisoformat(sunrise_str.replace("Z", "+00:00"))
+                    if sunrise_str
+                    else None
+                )
+                sunset = (
+                    datetime.fromisoformat(sunset_str.replace("Z", "+00:00"))
+                    if sunset_str
+                    else None
+                )
+
+                # Moon Parsing
+                moon_obj = entry.get("moonEvents", {})
+                moon_phase = moon_obj.get("moonPhase", "Unknown")
+
+                moonrise_list = moon_obj.get("moonriseTimes", [])
+                moonrise = (
+                    datetime.fromisoformat(moonrise_list[0].replace("Z", "+00:00"))
+                    if moonrise_list
+                    else None
+                )
+
+                moonset_list = moon_obj.get("moonsetTimes", [])
+                moonset = (
+                    datetime.fromisoformat(moonset_list[0].replace("Z", "+00:00"))
+                    if moonset_list
+                    else None
+                )
+
+                items.append(
+                    DailyForecastItem(
+                        date=date,
+                        low_temp=low_temp,
+                        high_temp=high_temp,
+                        description=desc,
+                        precipitation_probability=prob,
+                        sunrise=sunrise,
+                        sunset=sunset,
+                        moon_phase=moon_phase,
+                        moonrise=moonrise,
+                        moonset=moonset,
+                        cloud_cover=cloud_cover,
+                        max_wind=max_wind,
+                    )
+                )
+
+            # Cache successful result for 30 minutes (1800 seconds)
+            cache_manager.set(
+                cache_key,
+                [item.model_dump(mode="json") for item in items],
+                expires_sec=1800,
+            )
+            return items
+        except Exception as e:
+            if cached:
+                val, _, age_sec = cached
+                age_min = age_sec // 60
+                console.print(
+                    f"[yellow]⚠️ Weather API connection failed. Using cached daily forecast from {age_min} minutes ago.[/yellow]"
+                )
+                return [DailyForecastItem.model_validate(item) for item in val]
+            raise e
 
     def get_public_alerts(self, location: str) -> List[WeatherAlert]:
-        """Fetches active weather alerts."""
-        lat, lng = self.get_coords(location)
-        url = f"{self.base_url}/publicAlerts:lookup"
+        """Fetches active weather alerts, with caching and offline fallback."""
+        try:
+            lat, lng = self.get_coords(location)
+        except Exception as e:
+            loc_key = f"coords_{location.lower().strip()}"
+            cached_loc = cache_manager.get(loc_key)
+            if cached_loc:
+                val, _, _ = cached_loc
+                lat, lng = val
+            else:
+                raise e
 
-        params = {
-            "location.latitude": lat,
-            "location.longitude": lng,
-            "key": self.api_key,
-        }
+        cache_key = f"alerts_{lat}_{lng}"
+        cached = cache_manager.get(cache_key)
+        if cached:
+            val, is_expired, age_sec = cached
+            if not is_expired:
+                return [WeatherAlert.model_validate(item) for item in val]
 
-        resp = requests.get(url, params=params, timeout=10.0)
-        if not resp.ok:
-            self._handle_error(resp)
+        try:
+            url = f"{self.base_url}/publicAlerts:lookup"
 
-        data = resp.json()
-        alerts_data = data.get("alerts", [])
+            params = {
+                "location.latitude": lat,
+                "location.longitude": lng,
+                "key": self.api_key,
+            }
 
-        items = []
-        for a in alerts_data:
-            headline = a.get("headline", "Alert")
-            desc = a.get("description", "")
-            severity = a.get("severity", "UNKNOWN")
-            urgency = a.get("urgency", "UNKNOWN")
-            certainty = a.get("certainty", "UNKNOWN")
-            event_type = a.get("event", "Unknown Event")
-            source = a.get("senderName", "Unknown Source")
+            resp = requests.get(url, params=params, timeout=10.0)
+            if not resp.ok:
+                self._handle_error(resp)
 
-            start_str = a.get("effective")
-            end_str = a.get("expires")
+            data = resp.json()
+            alerts_data = data.get("alerts", [])
 
-            start = (
-                datetime.fromisoformat(start_str.replace("Z", "+00:00"))
-                if start_str
-                else None
-            )
-            end = (
-                datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-                if end_str
-                else None
-            )
+            items = []
+            for a in alerts_data:
+                headline = a.get("headline", "Alert")
+                desc = a.get("description", "")
+                severity = a.get("severity", "UNKNOWN")
+                urgency = a.get("urgency", "UNKNOWN")
+                certainty = a.get("certainty", "UNKNOWN")
+                event_type = a.get("event", "Unknown Event")
+                source = a.get("senderName", "Unknown Source")
 
-            items.append(
-                WeatherAlert(
-                    headline=headline,
-                    description=desc,
-                    type=event_type,
-                    severity=severity,
-                    urgency=urgency,
-                    certainty=certainty,
-                    start_time=start,
-                    end_time=end,
-                    source=source,
+                start_str = a.get("effective")
+                end_str = a.get("expires")
+
+                start = (
+                    datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+                    if start_str
+                    else None
                 )
-            )
+                end = (
+                    datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+                    if end_str
+                    else None
+                )
 
-        return items
+                items.append(
+                    WeatherAlert(
+                        headline=headline,
+                        description=desc,
+                        type=event_type,
+                        severity=severity,
+                        urgency=urgency,
+                        certainty=certainty,
+                        start_time=start,
+                        end_time=end,
+                        source=source,
+                    )
+                )
+
+            # Cache successful result for 5 minutes (300 seconds)
+            cache_manager.set(
+                cache_key,
+                [item.model_dump(mode="json") for item in items],
+                expires_sec=300,
+            )
+            return items
+        except Exception as e:
+            if cached:
+                val, _, age_sec = cached
+                age_min = age_sec // 60
+                console.print(
+                    f"[yellow]⚠️ Weather API connection failed. Using cached public alerts from {age_min} minutes ago.[/yellow]"
+                )
+                return [WeatherAlert.model_validate(item) for item in val]
+            raise e
 
     def generate_ai_briefing(self, context_data: Dict[str, Any]) -> str:
         """Generates a natural-language weather briefing using Google Gemini API."""
@@ -509,68 +702,118 @@ class AtmosClient:
     def get_hourly_forecast_by_coords(
         self, lat: float, lng: float, hours: int = 24
     ) -> List[HourlyForecastItem]:
-        """Fetches hourly forecast using exact lat/lng coordinates."""
+        """Fetches hourly forecast using exact lat/lng coordinates, with caching and offline fallback."""
         self._check_api_key()
-        url = f"{self.base_url}/forecast/hours:lookup"
+        cache_key = f"hourly_{lat}_{lng}_{hours}"
+        cached = cache_manager.get(cache_key)
+        if cached:
+            val, is_expired, age_sec = cached
+            if not is_expired:
+                return [HourlyForecastItem.model_validate(item) for item in val]
 
-        params = {
-            "location.latitude": lat,
-            "location.longitude": lng,
-            "hours": min(hours, 240),
-            "key": self.api_key,
-            "unitsSystem": "IMPERIAL",
-            "pageSize": min(hours, 24),
-        }
+        try:
+            url = f"{self.base_url}/forecast/hours:lookup"
 
-        resp = requests.get(url, params=params, timeout=10.0)
-        if not resp.ok:
-            self._handle_error(resp)
+            params = {
+                "location.latitude": lat,
+                "location.longitude": lng,
+                "hours": min(hours, 240),
+                "key": self.api_key,
+                "unitsSystem": "IMPERIAL",
+                "pageSize": min(hours, 24),
+            }
 
-        data = resp.json()
-        entries = data.get("forecastHours", [])
+            resp = requests.get(url, params=params, timeout=10.0)
+            if not resp.ok:
+                self._handle_error(resp)
 
-        items = []
-        for entry in entries:
-            interval = entry.get("interval", {})
-            ts_str = interval.get("startTime")
-            if not ts_str:
-                continue
+            data = resp.json()
+            entries = data.get("forecastHours", [])
 
-            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-            temp, feels_like, wind, precip, desc, humidity, pressure = (
-                self._parse_condition(entry)
-            )
+            items = []
+            for entry in entries:
+                interval = entry.get("interval", {})
+                ts_str = interval.get("startTime")
+                if not ts_str:
+                    continue
 
-            items.append(
-                HourlyForecastItem(
-                    timestamp=ts,
-                    temperature=temp,
-                    feels_like=feels_like,
-                    humidity=humidity,
-                    description=desc,
-                    wind=wind,
-                    precipitation=precip,
-                    pressure=pressure,
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                temp, feels_like, wind, precip, desc, humidity, pressure = (
+                    self._parse_condition(entry)
                 )
+
+                items.append(
+                    HourlyForecastItem(
+                        timestamp=ts,
+                        temperature=temp,
+                        feels_like=feels_like,
+                        humidity=humidity,
+                        description=desc,
+                        wind=wind,
+                        precipitation=precip,
+                        pressure=pressure,
+                    )
+                )
+
+            # Cache successful result for 15 minutes (900 seconds)
+            cache_manager.set(
+                cache_key,
+                [item.model_dump(mode="json") for item in items],
+                expires_sec=900,
             )
-        return items
+            return items
+        except Exception as e:
+            if cached:
+                val, _, age_sec = cached
+                age_min = age_sec // 60
+                console.print(
+                    f"[yellow]⚠️ Weather API connection failed. Using cached hourly forecast from {age_min} minutes ago.[/yellow]"
+                )
+                return [HourlyForecastItem.model_validate(item) for item in val]
+            raise e
 
     def get_route_directions(self, start: str, end: str) -> Dict[str, Any]:
-        """Queries Google Directions API to fetch route details."""
+        """Queries Google Directions API to fetch route details, with caching and offline fallback."""
         self._check_api_key()
-        params = {
-            "origin": start,
-            "destination": end,
-            "key": self.api_key,
-        }
-        resp = requests.get(
-            "https://maps.googleapis.com/maps/api/directions/json",
-            params=params,
-            timeout=10.0,
-        )
-        if not resp.ok:
-            self._handle_error(resp)
-        return resp.json()
+        cache_key = f"route_{start.lower().strip()}_{end.lower().strip()}"
+        cached = cache_manager.get(cache_key)
+        if cached:
+            val, is_expired, age_sec = cached
+            if not is_expired:
+                return val  # type: ignore
+
+        try:
+            params = {
+                "origin": start,
+                "destination": end,
+                "key": self.api_key,
+            }
+            resp = requests.get(
+                "https://maps.googleapis.com/maps/api/directions/json",
+                params=params,
+                timeout=10.0,
+            )
+            if not resp.ok:
+                self._handle_error(resp)
+
+            data = resp.json()
+            if data.get("status") not in ("OK", None):
+                raise ValueError(
+                    f"Directions API error: {data.get('status')} - {data.get('error_message', '')}"
+                )
+
+            # Cache successful result for 24 hours (86400 seconds)
+            cache_manager.set(cache_key, data, expires_sec=86400)
+            return data
+        except Exception as e:
+            if cached:
+                val, _, age_sec = cached
+                age_min = age_sec // 60
+                console.print(
+                    f"[yellow]⚠️ Directions API connection failed. Using cached route from {age_min} minutes ago.[/yellow]"
+                )
+                return val  # type: ignore
+            raise e
 
     def get_route_weather(self, start: str, end: str) -> List[Dict[str, Any]]:
         """Calculates waypoints along a driving route and fetches weather forecasts at their estimated arrival times (ETAs)."""

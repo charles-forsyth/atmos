@@ -2,6 +2,12 @@ import pytest
 from atmos.core import AtmosClient
 from atmos.models import DailyForecastItem
 from atmos.exceptions import AtmosAPIError
+from atmos.cache import cache_manager
+
+
+@pytest.fixture(autouse=True)
+def clear_cache():
+    cache_manager.clear()
 
 
 def test_get_coords(mocker):
