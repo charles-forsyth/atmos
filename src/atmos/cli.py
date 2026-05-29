@@ -1195,11 +1195,10 @@ def dashboard(location_arg, location, refresh):
                 footer_text = Text(
                     f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  |  Auto-refreshes every {refresh}s  |  Press Ctrl+C to exit",
                     style="dim italic",
+                    justify="center",
                 )
                 layout["footer"].update(
-                    Panel(
-                        footer_text, border_style="dim", box=box.ROUNDED, align="center"
-                    )
+                    Panel(footer_text, border_style="dim", box=box.ROUNDED)
                 )
 
             update_dashboard()
