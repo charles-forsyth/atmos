@@ -477,7 +477,7 @@ class AtmosClient:
             "generationConfig": {
                 "temperature": 0.3,
                 "topP": 0.95,
-                "maxOutputTokens": 1024,
+                "maxOutputTokens": 8192,
             },
         }
 
