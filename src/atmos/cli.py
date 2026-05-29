@@ -94,6 +94,12 @@ def markdown_to_html(md_text: str) -> str:
 
 class DefaultGroup(click.Group):
     def parse_args(self, ctx, args):
+        if args and "--no-cache" in args:
+            import os
+
+            os.environ["ATMOS_NO_CACHE"] = "1"
+            args = [a for a in args if a != "--no-cache"]
+
         if not args:
             return super().parse_args(ctx, ["forecast", "-L", "Home", "--hourly"])
         cmd_name = args[0]
@@ -104,7 +110,10 @@ class DefaultGroup(click.Group):
 
 @click.group(cls=DefaultGroup, context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(package_name="atmos")
-def main():
+@click.option(
+    "--no-cache", is_flag=True, help="Disable caching and bypass offline fallback"
+)
+def main(no_cache):
     """
     Atmos: A professional CLI weather tool.
 
@@ -119,7 +128,10 @@ def main():
       atmos find --activity hiking  # Find best days to hike
       atmos alert                   # Check for severe weather alerts
     """
-    pass
+    if no_cache:
+        import os
+
+        os.environ["ATMOS_NO_CACHE"] = "1"
 
 
 @main.command()
