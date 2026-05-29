@@ -458,7 +458,7 @@ class AtmosClient:
                 or "AIzaSyDgnBTB9UI-qbtRVzuJIQiwV0g_wsin8iQ"
             )
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key={api_key}"
 
         prompt = (
             "You are Atmos Intelligence, a professional weather advisor.\n"
