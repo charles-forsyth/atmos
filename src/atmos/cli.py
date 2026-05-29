@@ -972,7 +972,9 @@ def make_dashboard_layout() -> Layout:
         Layout(name="current", ratio=1), Layout(name="stargazing", size=7)
     )
     layout["right"].split_column(
-        Layout(name="forecast", ratio=2), Layout(name="activities", ratio=1)
+        Layout(name="forecast", ratio=1),
+        Layout(name="hourly", ratio=1),
+        Layout(name="activities", ratio=1),
     )
     return layout
 
@@ -1002,8 +1004,10 @@ def dashboard(location_arg, location, refresh):
             def update_dashboard():
                 current_err = "No data"
                 forecast_err = "No data"
+                hourly_err = "No data"
                 current_cond = None
                 daily_forecast = []
+                hourly_forecast = []
 
                 # 1. Fetch data
                 try:
@@ -1015,6 +1019,13 @@ def dashboard(location_arg, location, refresh):
                     daily_forecast = client.get_daily_forecast(final_location, days=5)
                 except Exception as e:
                     forecast_err = str(e)
+
+                try:
+                    hourly_forecast = client.get_hourly_forecast(
+                        final_location, hours=24
+                    )
+                except Exception as e:
+                    hourly_err = str(e)
 
                 # Header
                 header_text = Text(
@@ -1150,6 +1161,44 @@ def dashboard(location_arg, location, refresh):
                         Panel(
                             f"[red]Error loading forecast:\n{forecast_err}[/red]",
                             title="Outlook",
+                            border_style="red",
+                        )
+                    )
+
+                # Hourly Forecast Table Panel
+                if hourly_forecast:
+                    table = Table(expand=True, box=box.SIMPLE_HEAD)
+                    table.add_column("Time", style="dim")
+                    table.add_column("Temp", style="bold cyan")
+                    table.add_column("Condition", style="white")
+                    table.add_column("Precip", style="blue")
+
+                    for item in hourly_forecast[:5]:
+                        unit_label = (
+                            "°F"
+                            if "FAHRENHEIT" in (item.temperature.units or "").upper()
+                            else "°C"
+                        )
+                        temp_str = f"{item.temperature.value}{unit_label}"
+                        precip_str = f"{item.precipitation.probability}%"
+                        table.add_row(
+                            format_dt(item.timestamp),
+                            temp_str,
+                            item.description,
+                            precip_str,
+                        )
+                    layout["right"]["hourly"].update(
+                        Panel(
+                            table,
+                            title="[bold]Hourly Forecast[/bold]",
+                            border_style="cyan",
+                        )
+                    )
+                else:
+                    layout["right"]["hourly"].update(
+                        Panel(
+                            f"[red]Error loading hourly forecast:\n{hourly_err}[/red]",
+                            title="Hourly Forecast",
                             border_style="red",
                         )
                     )
