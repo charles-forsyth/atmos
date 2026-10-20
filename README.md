@@ -1,134 +1,90 @@
-# Atmos 🌩️
+# Atmos
 
-> **A professional, production-grade CLI weather tool powered by the Google Maps Platform Weather API.**
+> **A CLI weather intelligence tool (`v0.1.46`) powered by the Google Maps Platform Weather API and Google Gemini.**
 
-Atmos brings hyper-accurate, real-time weather data directly to your terminal with a beautiful, modern interface. It features current conditions, 10-day forecasts, historical data, severe weather alerts, visualization graphs, and smart planning tools.
+Atmos brings real-time weather observations, 10-day / 240-hour forecasts, 24-hour history, severe weather alerts, ASCII trend charts, astronomy/stargazing scores, outdoor activity planners, route weather corridors, and AI weather briefings directly to your terminal.
+
+See [SPEC.md](SPEC.md) for the full system specification, architecture, caching/offline fallback design, and requirement traceability.
 
 ## Features
 
-*   **Current Conditions:** Real-time temperature, wind, precipitation, and visibility.
-*   **Forecasts:** 10-day daily summary and 240-hour hourly detail.
-*   **History:** Look back at the last 24 hours of weather data.
-*   **Alerts:** Check for active severe weather warnings (Tornado, Flood, Winter Storm).
-*   **Visualization:** ASCII line charts for temperature, precipitation, and wind trends.
-*   **Astronomy:** Dedicated view for Sunrise, Sunset, Moon Phase, and Stargazing conditions.
-*   **Smart Planning:** Find the best day for Hiking, BBQ, or Stargazing based on weather logic.
-*   **Places:** Save your favorite locations (Home, Work) for quick access.
+* **Current Conditions (`atmos [LOCATION]`):** Real-time temperature, feels-like, wind speed/direction, humidity, UV index, visibility, and pressure.
+* **Forecasts (`atmos forecast`):** 10-day daily summary and 240-hour hourly detail (`--hourly`).
+* **AI Weather Briefing (`atmos brief`):** Personalized daily briefing, activity scores, stargazing outlook, and wardrobe guidance generated via `gemini-3.1-pro`.
+* **History (`atmos history`):** Look back at the past 24 hours of hourly weather observations.
+* **Alerts (`atmos alert`):** Check for active severe weather warnings.
+* **ASCII Charts (`atmos graph`):** Terminal line charts for `temp`, `precip`, `wind`, and `humidity` trends.
+* **Astronomy (`atmos stars`):** Sunrise, sunset, moon phase/illumination, and stargazing suitability score.
+* **Smart Activity Planner (`atmos find`):** Ranks upcoming days (0–100) for `hiking`, `running`, `bbq`, `camping`, `beach`, or `stargazing`.
+* **Wardrobe & Gear (`atmos wardrobe`):** Layering and gear recommendations tailored to current and forecast conditions.
+* **Multi-City Compare & Route Weather (`atmos compare`, `atmos route`):** Side-by-side city comparisons and weather along a driving route.
+* **Saved Places & Offline Cache (`atmos places`):** Save aliases (`home`, `work`) in `~/.config/atmos/places.json` with automatic offline cache fallback (`~/.config/atmos/cache.json`).
 
 ## Installation
 
-Install directly using `uv` (recommended):
+Install using `uv`:
 
 ```bash
-uv tool install git+https://github.com/charles-forsyth/atmos.git
+uv tool install --python 3.12 git+https://github.com/charles-forsyth/atmos.git
 ```
 
-To update to the latest version:
+To update:
 
 ```bash
-uv tool upgrade atmos --reinstall
+uv tool upgrade atmos
 ```
 
 ## Configuration
 
-Atmos requires a **Google Maps Platform API Key** with the **Weather API** enabled.
-
-1.  **Get a Key:** Go to the [Google Cloud Console](https://console.cloud.google.com/), create a project, and enable the "Weather API".
-2.  **Configure:** Create a file at `~/.config/atmos/.env` with the following content:
+Create `~/.config/atmos/.env` (`chmod 600`) with your Google Maps Platform API key (Weather, Geocoding, and Routes APIs enabled) and Gemini API key (for `atmos brief`):
 
 ```env
-GOOGLE_MAPS_API_KEY=your_api_key_here
+GOOGLE_MAPS_API_KEY=your_maps_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 ## Usage
 
-### 1. Basic Weather
-Get current conditions for any location. You can use City names, addresses, or ZIP codes.
-
+### 1. Current Weather & AI Briefing
 ```bash
 atmos "New York"
-atmos "1600 Pennsylvania Ave NW, Washington, DC"
+atmos brief "Seattle, WA"
 ```
 
-### 2. Forecasts
-See what's coming up.
-
-*   **Daily Summary (10 Days):**
-    ```bash
-    atmos forecast -L "London"
-    ```
-*   **Hourly Detail:**
-    ```bash
-    atmos forecast -L "Seattle" --hourly
-    ```
-
-### 3. History
-Check what happened recently (up to 24 hours ago).
-
+### 2. Forecasts & History
 ```bash
-atmos history -L "Chicago" --hours 12
+atmos forecast -L "London"
+atmos forecast -L "Seattle" --hourly -H 24
+atmos history -L "Chicago" -H 12
 ```
 
-### 4. Severe Alerts
-Check for active warnings.
-
+### 3. Visualization, Astronomy & Activity Planning
 ```bash
-atmos alert -L "Miami, FL"
-```
-
-### 5. Visualization (Graph)
-Draw a trend chart in your terminal.
-
-```bash
-atmos graph -L "Boston" --metric temp
-atmos graph -L "Boston" --metric precip --hours 48
-```
-
-### 6. Astronomy & Stargazing
-View Sun/Moon cycles and check if tonight is good for stargazing.
-
-```bash
-atmos stars -L "Joshua Tree"
-```
-
-### 7. Smart Planning (`find`)
-Let Atmos find the best day for your activity.
-
-```bash
+atmos graph -L "Boston" --metric temp --hours 48
+atmos stars -L "Joshua Tree, CA"
 atmos find -L "San Francisco" --activity hiking
-atmos find -L "Austin" --activity bbq
+atmos wardrobe -L "Denver, CO"
 ```
-Supported activities: `hiking`, `bbq`, `beach`, `stargazing`, `running`.
 
-### 8. Places Management
-Save common locations to avoid typing them every time.
-
+### 4. Multi-City Compare, Route Weather & Live Dashboard
 ```bash
-# Add a place
-atmos places add Home "123 Main St, Springfield"
-atmos places add Work "Empire State Building, NY"
-
-# Use a place
-atmos Home
-atmos forecast Work
-
-# List/Remove
-atmos places list
-atmos places remove Work
+atmos compare "New York" "Chicago" "Los Angeles" --forecast
+atmos route "Boston, MA" "Portland, ME"
+atmos dashboard "New York"
 ```
 
-## Troubleshooting
-
-*   **"API Error 400/404":** Ensure your API Key is valid and the **Weather API** is enabled in your Google Cloud Console.
-*   **"No data returned":** Some locations (especially remote ones) might not have data for all endpoints (e.g., Alerts).
-*   **Installation Issues:** Ensure you have `uv` installed. If `atmos` command is not found, ensure `~/.local/bin` is in your PATH.
+### 5. Saved Places
+```bash
+atmos places add home "123 Main St, Springfield"
+atmos places add work "Empire State Building, NY"
+atmos home
+atmos places list
+```
 
 ## Development
 
-Atmos follows the **Skywalker Development Workflow**.
-
-1.  **Clone:** `git clone ...`
-2.  **Sync:** `uv sync`
-3.  **Run:** `uv run atmos`
-4.  **Test:** `uv run pytest`
-5.  **Lint:** `uv run ruff check .`
+```bash
+uv sync --python 3.12
+uv run --python 3.12 pytest
+uv run --python 3.12 ruff check .
+```
