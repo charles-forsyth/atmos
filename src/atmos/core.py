@@ -675,7 +675,7 @@ class AtmosClient:
         if not api_key:
             import os
 
-            api_key = os.environ.get("GEMINI_API_KEY")
+            api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
             raise RuntimeError("Set GEMINI_API_KEY to use AI briefings.")
 
