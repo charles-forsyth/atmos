@@ -675,10 +675,9 @@ class AtmosClient:
         if not api_key:
             import os
 
-            api_key = (
-                os.environ.get("GEMINI_API_KEY")
-                or "AIzaSyDgnBTB9UI-qbtRVzuJIQiwV0g_wsin8iQ"
-            )
+            api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("Set GEMINI_API_KEY to use AI briefings.")
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key={api_key}"
 
